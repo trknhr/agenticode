@@ -1,0 +1,21 @@
+# agenticode configuration file example
+# Copy this to ~/.agenticode.yaml and update with your settings
+
+# OpenAI settings
+openai:
+  api_key: "your-openai-api-key-here"  # Or set OPENAI_API_KEY environment variable
+  model: "gpt-4-turbo-preview"         # Optional: defaults to gpt-4-turbo-preview
+
+# General settings
+general:
+  max_steps: 10                        # Maximum steps for agent execution
+  confirm_before_write: true           # Ask for confirmation before writing files
+
+# Tool settings
+tools:
+  shell:
+    enabled: true
+    timeout: 30s                       # Command timeout
+  file:
+    enabled: true
+    max_file_size: 1048576            # 1MB max file size

@@ -1,0 +1,18 @@
+name: fibonacci
+description: "Create a Go function to calculate Fibonacci numbers"
+prompt: "Create a Go program with a function that calculates the nth Fibonacci number. Include a main function that prints the first 10 Fibonacci numbers."
+
+expect:
+  files:
+    - path: main.go
+      should_contain:
+        - "package main"
+        - "func fibonacci"
+        - "func main"
+        - "fmt.Print"
+
+eval_mode: static
+criteria:
+  - "Does the code correctly calculate Fibonacci numbers?"
+  - "Is the function properly implemented?"
+  - "Does it print the first 10 numbers?"

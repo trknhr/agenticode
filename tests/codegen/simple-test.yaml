@@ -1,0 +1,12 @@
+name: simple-test
+description: "A simple test case for demonstration"
+prompt: "Create a hello world program"
+
+expect:
+  files:
+    - path: hello.go
+      should_contain:
+        - "package main"
+        - "Hello"
+
+eval_mode: static

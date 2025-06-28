@@ -1,0 +1,21 @@
+name: react-component
+description: "Create a React component for a simple counter"
+prompt: "Create a React component that displays a counter with increment and decrement buttons. Use React hooks (useState)."
+
+expect:
+  files:
+    - path: Counter.jsx
+      should_contain:
+        - "import React"
+        - "useState"
+        - "const Counter"
+        - "onClick"
+        - "return"
+      should_exist: true
+
+eval_mode: gpt
+criteria:
+  - "Does the component use React hooks correctly?"
+  - "Are increment and decrement functions implemented?"
+  - "Is the component properly exported?"
+  - "Does it follow React best practices?"

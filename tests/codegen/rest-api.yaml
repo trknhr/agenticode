@@ -1,0 +1,23 @@
+name: rest-api
+description: "Create a REST API for a todo list"
+prompt: "Create a simple REST API in Go for managing a todo list. Include endpoints for creating, reading, updating, and deleting todos. Use in-memory storage."
+
+expect:
+  files:
+    - path: main.go
+      should_contain:
+        - "http.HandleFunc"
+        - "GET"
+        - "POST"
+        - "PUT"
+        - "DELETE"
+        - "json.Marshal"
+        - "json.Unmarshal"
+
+eval_mode: gpt
+criteria:
+  - "Does the API implement all CRUD operations?"
+  - "Is JSON used for request/response bodies?"
+  - "Are HTTP methods properly handled?"
+  - "Is the code structured well?"
+  - "Does it include proper error handling?"

@@ -1,0 +1,20 @@
+name: http-server
+description: "Create a simple HTTP server in Go"
+prompt: "Create a simple HTTP server in Go that listens on port 8080 and responds with 'Hello, World!' to all requests"
+
+expect:
+  files:
+    - path: main.go
+      should_contain:
+        - "package main"
+        - "http.ListenAndServe"
+        - "Hello, World!"
+        - ":8080"
+
+eval_mode: gpt
+criteria:
+  - "Does the code compile?"
+  - "Is the server listening on port 8080?"
+  - "Does the response include 'Hello, World!'?"
+  - "Is proper error handling included?"
+  - "Is the code idiomatic Go?"
