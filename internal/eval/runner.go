@@ -2,12 +2,14 @@ package eval
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	openai "github.com/sashabaranov/go-openai"
 	"github.com/trknhr/agenticode/internal/agent"
 	"github.com/trknhr/agenticode/internal/llm"
 )
@@ -15,6 +17,8 @@ import (
 // Runner executes evaluation test cases
 type Runner struct {
 	agent         *agent.Agent
+	llmClient     llm.Client
+	evalLLMClient llm.Client // Separate LLM client for evaluations (can be a lighter model)
 	outputPath    string
 	keepFailed    bool
 	useGPT        bool
@@ -26,8 +30,10 @@ func NewRunner(llmClient llm.Client, opts ...RunnerOption) *Runner {
 	a := agent.New(llmClient, agent.WithMaxSteps(10))
 
 	r := &Runner{
-		agent:      a,
-		outputPath: ".agenticode_output",
+		agent:         a,
+		llmClient:     llmClient,
+		evalLLMClient: llmClient, // Default to same client, can be overridden
+		outputPath:    ".agenticode_output",
 	}
 
 	for _, opt := range opts {
@@ -65,6 +71,14 @@ func WithGPTEval(use bool) RunnerOption {
 func WithNoStaticCheck(skip bool) RunnerOption {
 	return func(r *Runner) {
 		r.noStaticCheck = skip
+	}
+}
+
+// WithEvalLLMClient sets a separate LLM client for evaluations
+// This allows using a lighter/faster model for evaluations
+func WithEvalLLMClient(client llm.Client) RunnerOption {
+	return func(r *Runner) {
+		r.evalLLMClient = client
 	}
 }
 
@@ -112,7 +126,7 @@ func (r *Runner) Run(ctx context.Context, tc *TestCase) (*EvalResult, error) {
 		r.runStaticChecks(result, tc)
 	}
 
-	if r.useGPT && tc.EvalMode == "gpt" {
+	if r.useGPT {
 		if err := r.runGPTEvaluation(ctx, result, tc); err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("GPT evaluation failed: %v", err))
 		}
@@ -175,10 +189,121 @@ func (r *Runner) runStaticChecks(result *EvalResult, tc *TestCase) {
 }
 
 func (r *Runner) runGPTEvaluation(ctx context.Context, result *EvalResult, tc *TestCase) error {
-	// TODO: Implement GPT evaluation
-	// This would use the LLM client to evaluate the generated code
-	// based on the criteria specified in the test case
+	// Build evaluation prompt
+	prompt := r.buildEvaluationPrompt(tc, result.GeneratedFiles)
+
+	// Create messages for the LLM
+	messages := []openai.ChatCompletionMessage{
+		{
+			Role: "system",
+			Content: `You are a code evaluation assistant. Your task is to evaluate generated code based on specific criteria.
+Provide a detailed evaluation with:
+1. An overall score from 1-10
+2. Individual scores for each criterion (1-10)
+3. Reasoning for your scores
+4. Constructive feedback
+
+Return your response in JSON format with the following structure:
+{
+  "overall_score": <number>,
+  "criteria_scores": {
+    "<criterion_name>": <number>
+  },
+  "reasoning": "<detailed reasoning>",
+  "feedback": "<constructive feedback>"
+}`,
+		},
+		{
+			Role:    "user",
+			Content: prompt,
+		},
+	}
+
+	// Call LLM for evaluation (using eval-specific client)
+	response, err := r.evalLLMClient.Generate(ctx, messages)
+	if err != nil {
+		return fmt.Errorf("failed to generate evaluation: %w", err)
+	}
+
+	if len(response.Choices) == 0 {
+		return fmt.Errorf("no response from LLM")
+	}
+
+	// Parse the JSON response
+	var evalResult struct {
+		OverallScore   int            `json:"overall_score"`
+		CriteriaScores map[string]int `json:"criteria_scores"`
+		Reasoning      string         `json:"reasoning"`
+		Feedback       string         `json:"feedback"`
+	}
+
+	content := response.Choices[0].Message.Content
+	if err := json.Unmarshal([]byte(content), &evalResult); err != nil {
+		// Try to extract JSON from the response if it's wrapped in markdown
+		start := strings.Index(content, "{")
+		end := strings.LastIndex(content, "}")
+		if start != -1 && end != -1 && end > start {
+			jsonContent := content[start : end+1]
+			if err := json.Unmarshal([]byte(jsonContent), &evalResult); err != nil {
+				return fmt.Errorf("failed to parse evaluation response: %w", err)
+			}
+		} else {
+			return fmt.Errorf("failed to parse evaluation response: %w", err)
+		}
+	}
+
+	// Store GPT evaluation results
+	result.Metrics.GPTScore = &GPTEvaluation{
+		Score:          evalResult.OverallScore,
+		Reasoning:      evalResult.Reasoning,
+		Feedback:       evalResult.Feedback,
+		CriteriaScores: evalResult.CriteriaScores,
+	}
+
+	// Update success based on score threshold (6/10 or higher)
+	if evalResult.OverallScore < 6 {
+		result.Success = false
+		result.Errors = append(result.Errors, fmt.Sprintf("GPT evaluation score too low: %d/10", evalResult.OverallScore))
+	}
+
 	return nil
+}
+
+func (r *Runner) buildEvaluationPrompt(tc *TestCase, generatedFiles map[string]string) string {
+	var sb strings.Builder
+
+	// Add task description
+	sb.WriteString("## Task Description\n")
+	sb.WriteString(tc.Description + "\n\n")
+
+	// Add original prompt
+	sb.WriteString("## Original Prompt\n")
+	sb.WriteString(tc.Prompt + "\n\n")
+
+	// Add evaluation criteria
+	if len(tc.Criteria) > 0 {
+		sb.WriteString("## Evaluation Criteria\n")
+		for _, criterion := range tc.Criteria {
+			sb.WriteString(fmt.Sprintf("- %s\n", criterion))
+		}
+		sb.WriteString("\n")
+	}
+
+	// Add generated files
+	sb.WriteString("## Generated Code\n")
+	for path, content := range generatedFiles {
+		sb.WriteString(fmt.Sprintf("### File: %s\n", path))
+		sb.WriteString("```\n")
+		sb.WriteString(content)
+		sb.WriteString("\n```\n\n")
+	}
+
+	// Add evaluation request
+	sb.WriteString("## Evaluation Request\n")
+	sb.WriteString("Please evaluate the generated code based on the criteria above. ")
+	sb.WriteString("Consider correctness, completeness, code quality, and alignment with the original prompt.\n")
+
+	return sb.String()
 }
 
 func (r *Runner) calculateMetrics(result *EvalResult) {

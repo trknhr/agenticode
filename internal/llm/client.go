@@ -3,11 +3,13 @@ package llm
 import (
 	"context"
 	"fmt"
+
+	openai "github.com/sashabaranov/go-openai"
 )
 
 type Client interface {
-	GenerateCode(ctx context.Context, prompt string) (*CodeGeneration, error)
-	StreamGenerateCode(ctx context.Context, prompt string) (<-chan StreamChunk, error)
+	Generate(ctx context.Context, messages []openai.ChatCompletionMessage) (openai.ChatCompletionResponse, error)
+	Stream(ctx context.Context, messages []openai.ChatCompletionMessage) (*openai.ChatCompletionStream, error)
 }
 
 type CodeGeneration struct {

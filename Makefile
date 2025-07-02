@@ -77,7 +77,7 @@ dev-dry: build
 
 ## eval: Run a single evaluation test
 eval: build
-	./$(BINARY_NAME) eval tests/codegen/http-server.yaml --config ./.agenticode.yaml
+	go run main.go eval tests/codegen/http-server.yaml --config ./.agenticode.yaml --keep-failed  --use-gpt 
 
 ## debug-eval: Debug eval command with dlv
 debug-eval:

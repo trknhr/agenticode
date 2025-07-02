@@ -10,7 +10,6 @@ type TestCase struct {
 	Description string       `yaml:"description"`
 	Prompt      string       `yaml:"prompt"`
 	Expect      Expectations `yaml:"expect"`
-	EvalMode    string       `yaml:"eval_mode"`
 	Criteria    []string     `yaml:"criteria"`
 }
 

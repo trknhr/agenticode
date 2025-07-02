@@ -31,8 +31,8 @@ func (r *Reporter) Report(results []*EvalResult) {
 
 	// Summary table
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "Test Case\tStatus\tPass Rate\tErrors")
-	fmt.Fprintln(w, "---------\t------\t---------\t------")
+	fmt.Fprintln(w, "Test Case\tStatus\tPass Rate\tGPT Score\tErrors")
+	fmt.Fprintln(w, "---------\t------\t---------\t---------\t------")
 
 	totalPassed := 0
 	for _, result := range results {
@@ -43,10 +43,16 @@ func (r *Reporter) Report(results []*EvalResult) {
 		}
 
 		errorCount := len(result.Errors)
-		fmt.Fprintf(w, "%s\t%s\t%.1f%%\t%d\n",
+		gptScore := "-"
+		if result.Metrics.GPTScore != nil {
+			gptScore = fmt.Sprintf("%d/10", result.Metrics.GPTScore.Score)
+		}
+
+		fmt.Fprintf(w, "%s\t%s\t%.1f%%\t%s\t%d\n",
 			result.TestCase.Name,
 			status,
 			result.Metrics.PassRate*100,
+			gptScore,
 			errorCount,
 		)
 	}
@@ -88,7 +94,7 @@ func (r *Reporter) reportDetailed(results []*EvalResult) {
 
 		if result.Metrics.GPTScore != nil {
 			fmt.Printf("\n🤖 GPT Evaluation:\n")
-			fmt.Printf("  Score: %d/5\n", result.Metrics.GPTScore.Score)
+			fmt.Printf("  Score: %d/10\n", result.Metrics.GPTScore.Score)
 			fmt.Printf("  Reasoning: %s\n", result.Metrics.GPTScore.Reasoning)
 		}
 	}

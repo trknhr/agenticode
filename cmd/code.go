@@ -67,14 +67,14 @@ Examples:
 		}
 
 		// Create agent with tools
-		codeAgent := agent.New(llmClient, 
+		codeAgent := agent.New(llmClient,
 			agent.WithTools(tools.GetDefaultTools()),
 			agent.WithMaxSteps(10),
 		)
 
 		// Execute the task
 		ctx := context.Background()
-		result, err := codeAgent.ExecuteTask(ctx, description)
+		result, err := codeAgent.ExecuteTask(ctx, description, dryRun)
 		if err != nil {
 			fmt.Printf("❌ Error executing task: %v\n", err)
 			os.Exit(1)

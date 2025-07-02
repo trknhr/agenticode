@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/sashabaranov/go-openai"
 	"github.com/trknhr/agenticode/internal/llm"
 	"github.com/trknhr/agenticode/internal/tools"
 )
@@ -37,6 +38,8 @@ func New(llmClient llm.Client, opts ...Option) *Agent {
 	// Initialize default tools
 	a.tools["write_file"] = tools.NewWriteFileTool()
 	a.tools["run_shell"] = tools.NewRunShellTool()
+	a.tools["read_file"] = tools.NewReadFileTool()
+	a.tools["list_files"] = tools.NewListFilesTool()
 
 	return a
 }
@@ -82,17 +85,24 @@ type ExecutionStep struct {
 	Error      error
 }
 
-func (a *Agent) ExecuteTask(ctx context.Context, task string) (*ExecutionResult, error) {
+func (a *Agent) ExecuteTask(ctx context.Context, task string, dryrun bool) (*ExecutionResult, error) {
+	log.Printf("Starting task execution: %s", task)
+	if dryrun {
+		log.Println("Running in dry-run mode")
+	}
+
 	result := &ExecutionResult{
 		Steps: make([]ExecutionStep, 0),
 	}
 
-	conversation := []Message{
+	conversation := []openai.ChatCompletionMessage{
 		{
 			Role: "system",
 			Content: `You are a code generation agent. Your task is to generate code based on the user's requirements.
 Use the available tools to create files and execute commands as needed.
-Think step by step and explain your actions.`,
+Think step by step and explain your actions.
+When you have successfully completed an action using a tool and it succeeded, do not repeat the same action. Move on or finish the task.
+`,
 		},
 		{
 			Role:    "user",
@@ -101,29 +111,41 @@ Think step by step and explain your actions.`,
 	}
 
 	for step := 0; step < a.maxSteps; step++ {
+		log.Printf("Processing step %d/%d", step+1, a.maxSteps)
+
 		// Get next action from LLM
+		log.Println("Calling LLM for next action...")
 		response, err := a.callLLM(ctx, conversation)
 		if err != nil {
 			return result, fmt.Errorf("LLM call failed: %w", err)
 		}
 
 		// Add assistant response to conversation
-		conversation = append(conversation, Message{
-			Role:    "assistant",
-			Content: response.Content,
+		conversation = append(conversation, openai.ChatCompletionMessage{
+			Role:      "assistant",
+			Content:   response.Content,
+			ToolCalls: response.ToolCalls,
 		})
+
+		if response.Content != "" {
+			log.Printf("LLM response: %s", response.Content)
+		}
 
 		// Check if there are tool calls
 		if len(response.ToolCalls) == 0 {
 			// No more tool calls, agent is done
+			log.Println("No more tool calls needed, task completed")
 			result.Success = true
 			result.Message = response.Content
 			break
 		}
 
+		log.Printf("LLM requested %d tool call(s)", len(response.ToolCalls))
+
 		// Execute tool calls
-		for _, toolCall := range response.ToolCalls {
-			stepResult := a.executeToolCall(toolCall)
+		for i, toolCall := range response.ToolCalls {
+			log.Printf("Executing tool call %d/%d: %s", i+1, len(response.ToolCalls), toolCall.Function.Name)
+			stepResult := a.executeToolCall(toolCall, dryrun)
 			result.Steps = append(result.Steps, stepResult)
 
 			// Add tool result to conversation
@@ -136,11 +158,14 @@ Think step by step and explain your actions.`,
 				toolResult["error"] = stepResult.Error.Error()
 			}
 
-			conversation = append(conversation, Message{
-				Role:    "tool",
-				Content: jsonString(toolResult),
+			conversation = append(conversation, openai.ChatCompletionMessage{
+				Role:       "tool",
+				Name:       stepResult.ToolName,
+				Content:    jsonString(toolResult),
+				ToolCallID: toolCall.ID,
 			})
 
+			log.Printf("Executing tool call: %v", conversation)
 			// Track generated files
 			if toolCall.Function.Name == "write_file" && stepResult.Error == nil {
 				if args, ok := stepResult.ToolArgs["path"].(string); ok {
@@ -148,6 +173,7 @@ Think step by step and explain your actions.`,
 					if c, ok := stepResult.ToolArgs["content"].(string); ok {
 						content = c
 					}
+					log.Printf("File to be written: %s", args)
 					result.GeneratedFiles = append(result.GeneratedFiles, GeneratedFile{
 						Path:    args,
 						Content: content,
@@ -159,8 +185,15 @@ Think step by step and explain your actions.`,
 	}
 
 	if len(result.Steps) >= a.maxSteps {
+		log.Printf("WARNING: Maximum steps (%d) reached without completion", a.maxSteps)
 		result.Success = false
 		result.Message = "Maximum steps reached"
+	}
+
+	if result.Success {
+		log.Printf("Task completed successfully with %d files generated", len(result.GeneratedFiles))
+	} else {
+		log.Printf("Task failed: %s", result.Message)
 	}
 
 	return result, nil
@@ -168,11 +201,12 @@ Think step by step and explain your actions.`,
 
 type LLMResponse struct {
 	Content   string
-	ToolCalls []ToolCall
+	ToolCalls []openai.ToolCall
 }
 
 type Message struct {
 	Role    string `json:"role"`
+	Name    string `json:"name,omitempty"`
 	Content string `json:"content"`
 }
 
@@ -187,7 +221,7 @@ type FunctionCall struct {
 	Arguments string `json:"arguments"`
 }
 
-func (a *Agent) callLLM(ctx context.Context, messages []Message) (*LLMResponse, error) {
+func (a *Agent) callLLM(ctx context.Context, messages []openai.ChatCompletionMessage) (*LLMResponse, error) {
 	// Convert messages to the format expected by LLM client
 	prompt := ""
 	for i, msg := range messages {
@@ -198,33 +232,35 @@ func (a *Agent) callLLM(ctx context.Context, messages []Message) (*LLMResponse, 
 	}
 
 	// Call LLM to generate code
-	result, err := a.llmClient.GenerateCode(ctx, prompt)
+	resp, err := a.llmClient.Generate(ctx, messages)
 	if err != nil {
 		return nil, err
 	}
+	msg := resp.Choices[0].Message
 
 	// Convert result to LLMResponse
-	response := &LLMResponse{
-		Content:   result.Summary,
-		ToolCalls: []ToolCall{},
-	}
+	return &LLMResponse{
+		Content:   msg.Content,
+		ToolCalls: msg.ToolCalls,
+	}, nil
+}
 
-	// Convert file changes to tool calls
-	for i, file := range result.Files {
-		response.ToolCalls = append(response.ToolCalls, ToolCall{
-			ID:   fmt.Sprintf("call_%d", i+1),
-			Type: "function",
+func mapToolCalls(calls []openai.ToolCall) []ToolCall {
+	var result []ToolCall
+	for _, c := range calls {
+		result = append(result, ToolCall{
+			ID:   c.ID,
+			Type: string(c.Type),
 			Function: FunctionCall{
-				Name:      "write_file",
-				Arguments: fmt.Sprintf(`{"path": "%s", "content": %s}`, file.Path, jsonString(file.Content)),
+				Name:      c.Function.Name,
+				Arguments: c.Function.Arguments,
 			},
 		})
 	}
-
-	return response, nil
+	return result
 }
 
-func (a *Agent) executeToolCall(toolCall ToolCall) ExecutionStep {
+func (a *Agent) executeToolCall(toolCall openai.ToolCall, dryrun bool) ExecutionStep {
 	step := ExecutionStep{
 		Action:   "tool_call",
 		ToolName: toolCall.Function.Name,
@@ -245,6 +281,18 @@ func (a *Agent) executeToolCall(toolCall ToolCall) ExecutionStep {
 	step.ToolArgs = args
 
 	// Execute tool
+	if !tool.ReadOnly() && dryrun {
+		path, _ := args["path"].(string)
+
+		step.Result = map[string]string{
+			"status":  "success",
+			"path":    path,
+			"message": fmt.Sprintf("File '%s' written successfully.", args["path"]),
+		}
+		step.Error = nil
+		return step
+	}
+
 	result, err := tool.Execute(args)
 	step.Result = result
 	step.Error = err
@@ -252,7 +300,21 @@ func (a *Agent) executeToolCall(toolCall ToolCall) ExecutionStep {
 	if err != nil {
 		log.Printf("Tool execution failed: %s - %v", toolCall.Function.Name, err)
 	} else {
-		log.Printf("Tool executed successfully: %s", toolCall.Function.Name)
+		if toolCall.Function.Name == "write_file" {
+			if path, ok := args["path"].(string); ok {
+				log.Printf("Tool executed successfully: %s - file: %s", toolCall.Function.Name, path)
+			} else {
+				log.Printf("Tool executed successfully: %s", toolCall.Function.Name)
+			}
+		} else if toolCall.Function.Name == "run_shell" {
+			if cmd, ok := args["command"].(string); ok {
+				log.Printf("Tool executed successfully: %s - command: %s", toolCall.Function.Name, cmd)
+			} else {
+				log.Printf("Tool executed successfully: %s", toolCall.Function.Name)
+			}
+		} else {
+			log.Printf("Tool executed successfully: %s", toolCall.Function.Name)
+		}
 	}
 
 	return step
@@ -265,7 +327,7 @@ func jsonString(v interface{}) string {
 
 // GenerateCode generates code based on the prompt and returns files without writing them
 func (a *Agent) GenerateCode(ctx context.Context, prompt string, dryRun bool) (map[string]string, error) {
-	result, err := a.ExecuteTask(ctx, prompt)
+	result, err := a.ExecuteTask(ctx, prompt, dryRun)
 	if err != nil {
 		return nil, err
 	}

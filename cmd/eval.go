@@ -73,13 +73,30 @@ func runEval(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Create runner
-	runner := eval.NewRunner(llmClient,
+	// Create runner with options
+	runnerOpts := []eval.RunnerOption{
 		eval.WithOutputPath(evalOutputPath),
 		eval.WithKeepFailed(evalKeepFailed),
 		eval.WithGPTEval(evalUseGPT),
 		eval.WithNoStaticCheck(evalNoStatic),
-	)
+	}
+
+	// Create separate evaluation client if eval model is configured
+	if evalUseGPT {
+		evalModel := viper.GetString("openai.eval_model")
+		mainModel := viper.GetString("openai.model")
+		
+		// Only create separate client if a different model is specified
+		if evalModel != "" && evalModel != mainModel {
+			evalClient, err := createEvalLLMClient(evalModel)
+			if err != nil {
+				return fmt.Errorf("failed to create evaluation LLM client: %w", err)
+			}
+			runnerOpts = append(runnerOpts, eval.WithEvalLLMClient(evalClient))
+		}
+	}
+
+	runner := eval.NewRunner(llmClient, runnerOpts...)
 
 	// Run evaluation
 	ctx := context.Background()
@@ -128,13 +145,30 @@ func runEvalAll(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Create runner
-	runner := eval.NewRunner(llmClient,
+	// Create runner with options
+	runnerOpts := []eval.RunnerOption{
 		eval.WithOutputPath(evalOutputPath),
 		eval.WithKeepFailed(evalKeepFailed),
 		eval.WithGPTEval(evalUseGPT),
 		eval.WithNoStaticCheck(evalNoStatic),
-	)
+	}
+
+	// Create separate evaluation client if eval model is configured
+	if evalUseGPT {
+		evalModel := viper.GetString("openai.eval_model")
+		mainModel := viper.GetString("openai.model")
+		
+		// Only create separate client if a different model is specified
+		if evalModel != "" && evalModel != mainModel {
+			evalClient, err := createEvalLLMClient(evalModel)
+			if err != nil {
+				return fmt.Errorf("failed to create evaluation LLM client: %w", err)
+			}
+			runnerOpts = append(runnerOpts, eval.WithEvalLLMClient(evalClient))
+		}
+	}
+
+	runner := eval.NewRunner(llmClient, runnerOpts...)
 
 	// Run all evaluations
 	ctx := context.Background()
@@ -173,6 +207,20 @@ func createLLMClient() (llm.Client, error) {
 	model := viper.GetString("openai.model")
 	if model == "" {
 		model = "gpt-4-turbo-preview"
+	}
+
+	return llm.NewOpenAIClient(apiKey, model), nil
+}
+
+func createEvalLLMClient(model string) (llm.Client, error) {
+	apiKey := viper.GetString("openai.api_key")
+	if apiKey == "" {
+		return nil, fmt.Errorf("OpenAI API key not set. Please set OPENAI_API_KEY environment variable or add it to ~/.agenticode.yaml")
+	}
+
+	// Default to gpt-3.5-turbo if no model specified
+	if model == "" {
+		model = "gpt-3.5-turbo"
 	}
 
 	return llm.NewOpenAIClient(apiKey, model), nil

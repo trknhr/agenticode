@@ -44,5 +44,9 @@ Thumbs.db
 /ui/
 /docs/overview.md
 
+# AI context
 CLAUDE.md
+.cursor
 __debug*
+
+.agenticode_output
