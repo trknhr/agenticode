@@ -229,6 +229,10 @@ func GetDefaultTools() []Tool {
 		&RunShellTool{},
 		&ReadFileTool{},
 		&ListFilesTool{},
+		&GrepTool{},
+		&GlobTool{},
+		&EditTool{},
+		&ReadManyFilesTool{},
 		&ApplyPatchTool{},
 	}
 }

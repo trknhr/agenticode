@@ -36,10 +36,10 @@ func New(llmClient llm.Client, opts ...Option) *Agent {
 	}
 
 	// Initialize default tools
-	a.tools["write_file"] = tools.NewWriteFileTool()
-	a.tools["run_shell"] = tools.NewRunShellTool()
-	a.tools["read_file"] = tools.NewReadFileTool()
-	a.tools["list_files"] = tools.NewListFilesTool()
+	defaultTools := tools.GetDefaultTools()
+	for _, tool := range defaultTools {
+		a.tools[tool.Name()] = tool
+	}
 
 	return a
 }
@@ -87,27 +87,31 @@ type ExecutionStep struct {
 
 func (a *Agent) ExecuteTask(ctx context.Context, task string, dryrun bool) (*ExecutionResult, error) {
 	log.Printf("Starting task execution: %s", task)
+
+	conversation := []openai.ChatCompletionMessage{
+		{
+			Role:    "system",
+			Content: GetCoreSystemPrompt(),
+		},
+		{
+			Role:    "user",
+			Content: task,
+		},
+	}
+
+	result, _, err := a.ExecuteWithHistory(ctx, conversation, dryrun)
+	return result, err
+}
+
+// ExecuteWithHistory executes a task with a given conversation history
+// It returns the result and the updated conversation history
+func (a *Agent) ExecuteWithHistory(ctx context.Context, conversation []openai.ChatCompletionMessage, dryrun bool) (*ExecutionResult, []openai.ChatCompletionMessage, error) {
 	if dryrun {
 		log.Println("Running in dry-run mode")
 	}
 
 	result := &ExecutionResult{
 		Steps: make([]ExecutionStep, 0),
-	}
-
-	conversation := []openai.ChatCompletionMessage{
-		{
-			Role: "system",
-			Content: `You are a code generation agent. Your task is to generate code based on the user's requirements.
-Use the available tools to create files and execute commands as needed.
-Think step by step and explain your actions.
-When you have successfully completed an action using a tool and it succeeded, do not repeat the same action. Move on or finish the task.
-`,
-		},
-		{
-			Role:    "user",
-			Content: task,
-		},
 	}
 
 	for step := 0; step < a.maxSteps; step++ {
@@ -117,15 +121,17 @@ When you have successfully completed an action using a tool and it succeeded, do
 		log.Println("Calling LLM for next action...")
 		response, err := a.callLLM(ctx, conversation)
 		if err != nil {
-			return result, fmt.Errorf("LLM call failed: %w", err)
+			return result, conversation, fmt.Errorf("LLM call failed: %w", err)
 		}
 
-		// Add assistant response to conversation
-		conversation = append(conversation, openai.ChatCompletionMessage{
-			Role:      "assistant",
-			Content:   response.Content,
-			ToolCalls: response.ToolCalls,
-		})
+		if response.Role == "model" {
+			// Add assistant response to conversation
+			conversation = append(conversation, openai.ChatCompletionMessage{
+				Role:      "assistant",
+				Content:   response.Content,
+				ToolCalls: response.ToolCalls,
+			})
+		}
 
 		if response.Content != "" {
 			log.Printf("LLM response: %s", response.Content)
@@ -196,10 +202,11 @@ When you have successfully completed an action using a tool and it succeeded, do
 		log.Printf("Task failed: %s", result.Message)
 	}
 
-	return result, nil
+	return result, conversation, nil
 }
 
 type LLMResponse struct {
+	Role      string
 	Content   string
 	ToolCalls []openai.ToolCall
 }
@@ -240,6 +247,7 @@ func (a *Agent) callLLM(ctx context.Context, messages []openai.ChatCompletionMes
 
 	// Convert result to LLMResponse
 	return &LLMResponse{
+		Role:      msg.Role,
 		Content:   msg.Content,
 		ToolCalls: msg.ToolCalls,
 	}, nil

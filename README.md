@@ -7,6 +7,7 @@ agenticode is a CLI tool for natural language code generation using Large Langua
 ## Features
 
 - **Natural Language Code Generation**: Generate code from plain English descriptions
+- **Interactive Mode**: Chat with the agent while maintaining conversation history
 - **Multi-Provider LLM Support**: Currently supports OpenAI with plans for Ollama and other providers
 - **Tool System**: Extensible tool interface for file operations and shell commands
 - **Evaluation Framework**: Built-in evaluation system with static checks and GPT-based code quality assessment
@@ -44,7 +45,12 @@ This creates binaries for:
 export OPENAI_API_KEY="your-api-key"
 ```
 
-2. Generate code:
+2. Start interactive mode:
+```bash
+agenticode
+```
+
+3. Or generate code directly:
 ```bash
 agenticode code "create a simple REST API server in Go with health check endpoint"
 ```
@@ -68,6 +74,19 @@ general:
 ```
 
 ## Commands
+
+### Interactive Mode (Default)
+When you run `agenticode` without any subcommands, it starts an interactive session where you can have a conversation with the agent.
+
+```bash
+agenticode
+```
+
+Interactive mode commands:
+- Type your requests naturally to interact with the agent
+- `exit` or `quit`: End the session
+- `clear`: Clear conversation history
+- `history`: View conversation history
 
 ### `code` - Generate Code
 Generate code from natural language descriptions.

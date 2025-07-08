@@ -54,7 +54,7 @@ lint:
 
 ## install: Install the binary to GOPATH/bin
 install: build
-	$(GO) install
+	$(GO) install -v .
 
 ## clean: Clean build artifacts
 clean:
