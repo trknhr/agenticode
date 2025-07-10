@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/viper"
 	"github.com/trknhr/agenticode/internal/agent"
 	"github.com/trknhr/agenticode/internal/llm"
+	"github.com/trknhr/agenticode/internal/tools"
 )
 
 var cfgFile string
@@ -82,7 +83,7 @@ func runInteractiveMode(cmd *cobra.Command, args []string) error {
 	// Create agent
 	maxSteps := viper.GetInt("general.max_steps")
 	if maxSteps == 0 {
-		maxSteps = 10
+		maxSteps = 15
 	}
 
 	agentInstance := agent.New(client, agent.WithMaxSteps(maxSteps))
@@ -135,7 +136,7 @@ func runInteractiveMode(cmd *cobra.Command, args []string) error {
 					continue
 				}
 				msgCount++
-				
+
 				// Format the role for display
 				displayRole := msg.Role
 				if displayRole == "assistant" {
@@ -143,13 +144,13 @@ func runInteractiveMode(cmd *cobra.Command, args []string) error {
 				} else if displayRole == "user" {
 					displayRole = "You"
 				}
-				
+
 				// Truncate long messages for history display
 				content := strings.TrimSpace(msg.Content)
 				if len(content) > 200 {
 					content = content[:197] + "..."
 				}
-				
+
 				fmt.Printf("\n[%s]: %s\n", displayRole, content)
 			}
 			if msgCount == 0 {
@@ -176,17 +177,24 @@ func runInteractiveMode(cmd *cobra.Command, args []string) error {
 		// Update our conversation with the agent's updated version
 		conversation = updatedConversation
 
+		fmt.Printf("len conversation: %d \n", len(conversation))
 		// Display the response
 		if response.Message != "" {
 			fmt.Printf("\n%s\n", response.Message)
 		}
 
-		// Show any generated files
-		if len(response.GeneratedFiles) > 0 {
-			fmt.Printf("\nGenerated %d file(s):\n", len(response.GeneratedFiles))
-			for _, file := range response.GeneratedFiles {
-				fmt.Printf("  - %s\n", file.Path)
+		// Display tool execution results
+		for _, step := range response.Steps {
+			if step.Result != nil {
+				if toolResult, ok := step.Result.(*tools.ToolResult); ok && toolResult.ReturnDisplay != "" {
+					fmt.Printf("\n%s\n", toolResult.ReturnDisplay)
+				}
 			}
+		}
+
+		// Show any generated files summary
+		if len(response.GeneratedFiles) > 0 {
+			fmt.Printf("\n📝 Summary: Generated %d file(s)\n", len(response.GeneratedFiles))
 		}
 	}
 

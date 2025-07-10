@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 )
 
 type GrepTool struct{}
@@ -26,7 +27,7 @@ func (t *GrepTool) ReadOnly() bool {
 	return true
 }
 
-func (t *GrepTool) Execute(args map[string]interface{}) (interface{}, error) {
+func (t *GrepTool) Execute(args map[string]interface{}) (*ToolResult, error) {
 	pattern, ok := args["pattern"].(string)
 	if !ok {
 		return nil, fmt.Errorf("pattern is required")
@@ -46,6 +47,8 @@ func (t *GrepTool) Execute(args map[string]interface{}) (interface{}, error) {
 	}
 
 	var matches []map[string]interface{}
+	totalMatches := 0
+	
 	err = filepath.Walk(path, func(filePath string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil // Skip files we can't access
@@ -84,6 +87,7 @@ func (t *GrepTool) Execute(args map[string]interface{}) (interface{}, error) {
 					"line":        line,
 					"match":       re.FindString(line),
 				})
+				totalMatches++
 			}
 		}
 
@@ -101,12 +105,50 @@ func (t *GrepTool) Execute(args map[string]interface{}) (interface{}, error) {
 		return nil, fmt.Errorf("error walking directory: %w", err)
 	}
 
-	return map[string]interface{}{
-		"status":       "success",
-		"pattern":      pattern,
-		"path":         path,
-		"include":      include,
-		"total_files":  len(matches),
-		"results":      matches,
+	// Build LLM content
+	var llmContent strings.Builder
+	llmContent.WriteString(fmt.Sprintf("Found %d matches in %d files for pattern '%s'", totalMatches, len(matches), pattern))
+	if len(matches) > 0 {
+		llmContent.WriteString(":\n")
+		for _, match := range matches {
+			file := match["file"].(string)
+			fileMatches := match["matches"].([]map[string]interface{})
+			llmContent.WriteString(fmt.Sprintf("\n%s:\n", file))
+			for _, m := range fileMatches {
+				lineNum := m["line_number"].(int)
+				line := m["line"].(string)
+				llmContent.WriteString(fmt.Sprintf("  Line %d: %s\n", lineNum, line))
+			}
+		}
+	}
+
+	// Build display content
+	var displayContent strings.Builder
+	displayContent.WriteString(fmt.Sprintf("🔍 **Search Results** for `%s`", pattern))
+	if include != "" {
+		displayContent.WriteString(fmt.Sprintf(" in `%s` files", include))
+	}
+	displayContent.WriteString(fmt.Sprintf("\n\nFound **%d matches** in **%d files**\n", totalMatches, len(matches)))
+	
+	if len(matches) > 0 {
+		for _, match := range matches {
+			file := match["file"].(string)
+			fileMatches := match["matches"].([]map[string]interface{})
+			displayContent.WriteString(fmt.Sprintf("\n### 📄 %s\n```\n", file))
+			for _, m := range fileMatches {
+				lineNum := m["line_number"].(int)
+				line := m["line"].(string)
+				displayContent.WriteString(fmt.Sprintf("%4d | %s\n", lineNum, line))
+			}
+			displayContent.WriteString("```\n")
+		}
+	} else {
+		displayContent.WriteString("\nNo matches found.")
+	}
+
+	return &ToolResult{
+		LLMContent:    llmContent.String(),
+		ReturnDisplay: displayContent.String(),
+		Error:         nil,
 	}, nil
 }

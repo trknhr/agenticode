@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type ReadManyFilesTool struct{}
@@ -24,7 +25,7 @@ func (t *ReadManyFilesTool) ReadOnly() bool {
 	return true
 }
 
-func (t *ReadManyFilesTool) Execute(args map[string]interface{}) (interface{}, error) {
+func (t *ReadManyFilesTool) Execute(args map[string]interface{}) (*ToolResult, error) {
 	// Accept either "paths" (array) or "patterns" (array of glob patterns)
 	var filePaths []string
 
@@ -85,10 +86,62 @@ func (t *ReadManyFilesTool) Execute(args map[string]interface{}) (interface{}, e
 		})
 	}
 
-	return map[string]interface{}{
-		"status":      "success",
-		"files_read":  len(results),
-		"errors":      errors,
-		"results":     results,
+	// Build LLM content
+	var llmContent strings.Builder
+	llmContent.WriteString(fmt.Sprintf("Read %d files", len(results)))
+	if len(errors) > 0 {
+		llmContent.WriteString(fmt.Sprintf(" (%d errors)", len(errors)))
+	}
+	llmContent.WriteString(":\n")
+	
+	for _, result := range results {
+		path := result["path"].(string)
+		content := result["content"].(string)
+		llmContent.WriteString(fmt.Sprintf("\n=== %s ===\n%s\n", path, content))
+	}
+	
+	if len(errors) > 0 {
+		llmContent.WriteString("\nErrors:\n")
+		for _, err := range errors {
+			llmContent.WriteString(fmt.Sprintf("- %s\n", err))
+		}
+	}
+
+	// Build display content
+	var displayContent strings.Builder
+	displayContent.WriteString(fmt.Sprintf("📚 **Read %d files**", len(results)))
+	if len(errors) > 0 {
+		displayContent.WriteString(fmt.Sprintf(" (⚠️ %d errors)", len(errors)))
+	}
+	displayContent.WriteString("\n\n")
+	
+	for _, result := range results {
+		path := result["path"].(string)
+		content := result["content"].(string)
+		size := result["size"].(int64)
+		lines := strings.Count(content, "\n") + 1
+		
+		displayContent.WriteString(fmt.Sprintf("### 📄 %s\n", path))
+		displayContent.WriteString(fmt.Sprintf("*%d lines, %d bytes*\n", lines, size))
+		displayContent.WriteString("```\n")
+		
+		// Add line numbers for display
+		for i, line := range strings.Split(content, "\n") {
+			displayContent.WriteString(fmt.Sprintf("%4d | %s\n", i+1, line))
+		}
+		displayContent.WriteString("```\n\n")
+	}
+	
+	if len(errors) > 0 {
+		displayContent.WriteString("### ⚠️ Errors:\n")
+		for _, err := range errors {
+			displayContent.WriteString(fmt.Sprintf("- %s\n", err))
+		}
+	}
+
+	return &ToolResult{
+		LLMContent:    llmContent.String(),
+		ReturnDisplay: displayContent.String(),
+		Error:         nil,
 	}, nil
 }

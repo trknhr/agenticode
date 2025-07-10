@@ -24,7 +24,7 @@ func (t *EditTool) ReadOnly() bool {
 	return false
 }
 
-func (t *EditTool) Execute(args map[string]interface{}) (interface{}, error) {
+func (t *EditTool) Execute(args map[string]interface{}) (*ToolResult, error) {
 	filePath, ok := args["file_path"].(string)
 	if !ok {
 		return nil, fmt.Errorf("file_path is required")
@@ -84,10 +84,9 @@ func (t *EditTool) Execute(args map[string]interface{}) (interface{}, error) {
 		return nil, fmt.Errorf("failed to write file: %w", err)
 	}
 
-	return map[string]interface{}{
-		"status":       "success",
-		"file_path":    filePath,
-		"replacements": replacements,
-		"message":      fmt.Sprintf("Replaced %d occurrence(s) in %s", replacements, filePath),
+	return &ToolResult{
+		LLMContent:    fmt.Sprintf("Successfully replaced %d occurrence(s) in %s", replacements, filePath),
+		ReturnDisplay: fmt.Sprintf("✅ **Edited** `%s`\n\nReplaced **%d occurrence(s)** of the specified string.", filePath, replacements),
+		Error:         nil,
 	}, nil
 }

@@ -13,7 +13,17 @@ type Tool interface {
 	Name() string
 	Description() string
 	ReadOnly() bool
-	Execute(args map[string]interface{}) (interface{}, error)
+	Execute(args map[string]interface{}) (*ToolResult, error)
+}
+
+// ToolResult represents the result of a tool execution
+type ToolResult struct {
+	// LLMContent is the factual content to be included in the LLM history
+	LLMContent string
+	// ReturnDisplay is the user-friendly display content (can be markdown)
+	ReturnDisplay string
+	// Error indicates if the tool execution failed
+	Error error
 }
 
 type WriteFileTool struct{}
@@ -34,7 +44,7 @@ func (t *WriteFileTool) ReadOnly() bool {
 	return false
 }
 
-func (t *WriteFileTool) Execute(args map[string]interface{}) (interface{}, error) {
+func (t *WriteFileTool) Execute(args map[string]interface{}) (*ToolResult, error) {
 	path, ok := args["path"].(string)
 	if !ok {
 		return nil, fmt.Errorf("path is required")
@@ -54,10 +64,13 @@ func (t *WriteFileTool) Execute(args map[string]interface{}) (interface{}, error
 		return nil, fmt.Errorf("failed to write file: %w", err)
 	}
 
-	return map[string]string{
-		"status":  "success",
-		"message": fmt.Sprintf("File '%s' written successfully.", args["path"]),
-		"path":    path,
+	// Count lines in the content
+	lines := strings.Count(content, "\n") + 1
+
+	return &ToolResult{
+		LLMContent:    fmt.Sprintf("Successfully wrote %d lines to %s", lines, path),
+		ReturnDisplay: fmt.Sprintf("✅ Created file: `%s` (%d lines)", path, lines),
+		Error:         nil,
 	}, nil
 }
 
@@ -79,7 +92,7 @@ func (t *RunShellTool) ReadOnly() bool {
 	return false
 }
 
-func (t *RunShellTool) Execute(args map[string]interface{}) (interface{}, error) {
+func (t *RunShellTool) Execute(args map[string]interface{}) (*ToolResult, error) {
 	command, ok := args["command"].(string)
 	if !ok {
 		return nil, fmt.Errorf("command is required")
@@ -101,19 +114,42 @@ func (t *RunShellTool) Execute(args map[string]interface{}) (interface{}, error)
 	cmd.Stderr = &stderr
 
 	err := cmd.Run()
-
-	result := map[string]interface{}{
-		"stdout": stdout.String(),
-		"stderr": stderr.String(),
-		"status": "success",
+	
+	stdoutStr := stdout.String()
+	stderrStr := stderr.String()
+	
+	// Build LLM content
+	llmContent := fmt.Sprintf("Executed: %s", command)
+	if stdoutStr != "" {
+		llmContent += fmt.Sprintf("\nStdout:\n%s", stdoutStr)
 	}
-
+	if stderrStr != "" {
+		llmContent += fmt.Sprintf("\nStderr:\n%s", stderrStr)
+	}
 	if err != nil {
-		result["status"] = "error"
-		result["error"] = err.Error()
+		llmContent += fmt.Sprintf("\nError: %v", err)
+	}
+	
+	// Build display content
+	var displayContent string
+	if err != nil {
+		displayContent = fmt.Sprintf("❌ Command failed: `%s`\n", command)
+		if stderrStr != "" {
+			displayContent += fmt.Sprintf("```\n%s\n```", stderrStr)
+		}
+		displayContent += fmt.Sprintf("\nError: %v", err)
+	} else {
+		displayContent = fmt.Sprintf("✅ Executed: `%s`\n", command)
+		if stdoutStr != "" {
+			displayContent += fmt.Sprintf("```\n%s\n```", stdoutStr)
+		}
 	}
 
-	return result, nil
+	return &ToolResult{
+		LLMContent:    llmContent,
+		ReturnDisplay: displayContent,
+		Error:         err,
+	}, nil
 }
 
 type ReadFileTool struct{}
@@ -134,7 +170,7 @@ func (t *ReadFileTool) ReadOnly() bool {
 	return true
 }
 
-func (t *ReadFileTool) Execute(args map[string]interface{}) (interface{}, error) {
+func (t *ReadFileTool) Execute(args map[string]interface{}) (*ToolResult, error) {
 	path, ok := args["path"].(string)
 	if !ok {
 		return nil, fmt.Errorf("path is required")
@@ -145,10 +181,20 @@ func (t *ReadFileTool) Execute(args map[string]interface{}) (interface{}, error)
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
 
-	return map[string]interface{}{
-		"status":  "success",
-		"path":    path,
-		"content": string(content),
+	contentStr := string(content)
+	lines := strings.Count(contentStr, "\n") + 1
+
+	// For display, show line numbers
+	var displayLines []string
+	for i, line := range strings.Split(contentStr, "\n") {
+		displayLines = append(displayLines, fmt.Sprintf("%4d | %s", i+1, line))
+	}
+	displayContent := fmt.Sprintf("📄 **%s** (%d lines):\n```\n%s\n```", path, lines, strings.Join(displayLines, "\n"))
+
+	return &ToolResult{
+		LLMContent:    fmt.Sprintf("File content of %s:\n%s", path, contentStr),
+		ReturnDisplay: displayContent,
+		Error:         nil,
 	}, nil
 }
 
@@ -170,7 +216,7 @@ func (t *ListFilesTool) ReadOnly() bool {
 	return true
 }
 
-func (t *ListFilesTool) Execute(args map[string]interface{}) (interface{}, error) {
+func (t *ListFilesTool) Execute(args map[string]interface{}) (*ToolResult, error) {
 	path, ok := args["path"].(string)
 	if !ok {
 		path = "."
@@ -181,26 +227,37 @@ func (t *ListFilesTool) Execute(args map[string]interface{}) (interface{}, error
 		return nil, fmt.Errorf("failed to read directory: %w", err)
 	}
 
-	var files []map[string]interface{}
+	var files []string
+	var displayLines []string
+	dirCount := 0
+	fileCount := 0
+	
 	for _, entry := range entries {
-		info, err := entry.Info()
-		if err != nil {
-			continue
+		name := entry.Name()
+		if entry.IsDir() {
+			name += "/"
+			dirCount++
+			displayLines = append(displayLines, fmt.Sprintf("📁 %s", name))
+		} else {
+			fileCount++
+			info, _ := entry.Info()
+			size := ""
+			if info != nil {
+				size = fmt.Sprintf(" (%d bytes)", info.Size())
+			}
+			displayLines = append(displayLines, fmt.Sprintf("📄 %s%s", name, size))
 		}
-
-		files = append(files, map[string]interface{}{
-			"name":    entry.Name(),
-			"is_dir":  entry.IsDir(),
-			"size":    info.Size(),
-			"mode":    info.Mode().String(),
-			"modtime": info.ModTime().Format("2006-01-02 15:04:05"),
-		})
+		files = append(files, name)
 	}
 
-	return map[string]interface{}{
-		"status": "success",
-		"path":   path,
-		"files":  files,
+	llmContent := fmt.Sprintf("Directory listing of %s: %s", path, strings.Join(files, ", "))
+	displayContent := fmt.Sprintf("📂 **%s** (%d directories, %d files):\n```\n%s\n```", 
+		path, dirCount, fileCount, strings.Join(displayLines, "\n"))
+
+	return &ToolResult{
+		LLMContent:    llmContent,
+		ReturnDisplay: displayContent,
+		Error:         nil,
 	}, nil
 }
 
@@ -218,7 +275,7 @@ func (t *ApplyPatchTool) ReadOnly() bool {
 	return false
 }
 
-func (t *ApplyPatchTool) Execute(args map[string]interface{}) (interface{}, error) {
+func (t *ApplyPatchTool) Execute(args map[string]interface{}) (*ToolResult, error) {
 	// TODO: Implement patch application
 	return nil, fmt.Errorf("not yet implemented")
 }

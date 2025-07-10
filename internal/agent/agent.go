@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"regexp"
+	"strings"
 
 	"github.com/sashabaranov/go-openai"
 	"github.com/trknhr/agenticode/internal/llm"
@@ -83,6 +85,7 @@ type ExecutionStep struct {
 	ToolArgs   map[string]interface{}
 	Result     interface{}
 	Error      error
+	Reasoning  string
 }
 
 func (a *Agent) ExecuteTask(ctx context.Context, task string, dryrun bool) (*ExecutionResult, error) {
@@ -119,7 +122,12 @@ func (a *Agent) ExecuteWithHistory(ctx context.Context, conversation []openai.Ch
 
 		// Get next action from LLM
 		log.Println("Calling LLM for next action...")
-		response, err := a.callLLM(ctx, conversation)
+
+		// Filter conversation to remove orphaned tool messages
+		// (tool messages without preceding tool_calls)
+		filteredConversation := filterConversationForLLM(conversation)
+
+		response, err := a.callLLM(ctx, filteredConversation)
 		if err != nil {
 			return result, conversation, fmt.Errorf("LLM call failed: %w", err)
 		}
@@ -135,6 +143,11 @@ func (a *Agent) ExecuteWithHistory(ctx context.Context, conversation []openai.Ch
 
 		if response.Content != "" {
 			log.Printf("LLM response: %s", response.Content)
+		}
+
+		if response.Reasoning != "" {
+			log.Printf("Thinking %s", response.Reasoning)
+
 		}
 
 		// Check if there are tool calls
@@ -155,23 +168,27 @@ func (a *Agent) ExecuteWithHistory(ctx context.Context, conversation []openai.Ch
 			result.Steps = append(result.Steps, stepResult)
 
 			// Add tool result to conversation
-			toolResult := map[string]interface{}{
-				"tool_call_id": toolCall.ID,
-				"output":       stepResult.Result,
-			}
-
+			var toolContent string
 			if stepResult.Error != nil {
-				toolResult["error"] = stepResult.Error.Error()
+				toolContent = fmt.Sprintf("Error: %v", stepResult.Error)
+			} else if stepResult.Result != nil {
+				// Use the LLMContent for the conversation history
+				if toolResult, ok := stepResult.Result.(*tools.ToolResult); ok {
+					toolContent = toolResult.LLMContent
+				} else {
+					// Fallback for any tools that might not return ToolResult yet
+					toolContent = jsonString(stepResult.Result)
+				}
 			}
 
 			conversation = append(conversation, openai.ChatCompletionMessage{
 				Role:       "tool",
 				Name:       stepResult.ToolName,
-				Content:    jsonString(toolResult),
+				Content:    toolContent,
 				ToolCallID: toolCall.ID,
 			})
 
-			log.Printf("Executing tool call: %v", conversation)
+			log.Printf("Executing tool call: %v", conversation[len(conversation)-1])
 			// Track generated files
 			if toolCall.Function.Name == "write_file" && stepResult.Error == nil {
 				if args, ok := stepResult.ToolArgs["path"].(string); ok {
@@ -209,6 +226,7 @@ type LLMResponse struct {
 	Role      string
 	Content   string
 	ToolCalls []openai.ToolCall
+	Reasoning string
 }
 
 type Message struct {
@@ -250,7 +268,17 @@ func (a *Agent) callLLM(ctx context.Context, messages []openai.ChatCompletionMes
 		Role:      msg.Role,
 		Content:   msg.Content,
 		ToolCalls: msg.ToolCalls,
+		Reasoning: extractReasoning(msg.Content),
 	}, nil
+}
+
+func extractReasoning(content string) string {
+	re := regexp.MustCompile(`(?s)Reasoning:\s*(.+?)(?:\n[A-Z][a-z]+:|$)`)
+	matches := re.FindStringSubmatch(content)
+	if len(matches) >= 2 {
+		return strings.TrimSpace(matches[1])
+	}
+	return ""
 }
 
 func mapToolCalls(calls []openai.ToolCall) []ToolCall {
@@ -291,19 +319,25 @@ func (a *Agent) executeToolCall(toolCall openai.ToolCall, dryrun bool) Execution
 	// Execute tool
 	if !tool.ReadOnly() && dryrun {
 		path, _ := args["path"].(string)
-
-		step.Result = map[string]string{
-			"status":  "success",
-			"path":    path,
-			"message": fmt.Sprintf("File '%s' written successfully.", args["path"]),
+		
+		// Create a fake ToolResult for dry-run
+		step.Result = &tools.ToolResult{
+			LLMContent:    fmt.Sprintf("(Dry-run) Would write file: %s", path),
+			ReturnDisplay: fmt.Sprintf("🔄 **Dry-run**: Would create `%s`", path),
+			Error:         nil,
 		}
 		step.Error = nil
 		return step
 	}
 
 	result, err := tool.Execute(args)
-	step.Result = result
-	step.Error = err
+	if err != nil {
+		step.Error = err
+		step.Result = nil
+	} else {
+		step.Result = result
+		step.Error = result.Error
+	}
 
 	if err != nil {
 		log.Printf("Tool execution failed: %s - %v", toolCall.Function.Name, err)
@@ -331,6 +365,25 @@ func (a *Agent) executeToolCall(toolCall openai.ToolCall, dryrun bool) Execution
 func jsonString(v interface{}) string {
 	b, _ := json.Marshal(v)
 	return string(b)
+}
+
+// filterConversationForLLM removes tool messages that don't have a preceding message with tool_calls
+func filterConversationForLLM(messages []openai.ChatCompletionMessage) []openai.ChatCompletionMessage {
+	filtered := make([]openai.ChatCompletionMessage, 0, len(messages))
+
+	for i, msg := range messages {
+		if msg.Role == "tool" {
+			// Check if previous message has tool_calls
+			if i > 0 && len(messages[i-1].ToolCalls) > 0 {
+				filtered = append(filtered, msg)
+			}
+			// Skip orphaned tool messages
+		} else {
+			filtered = append(filtered, msg)
+		}
+	}
+
+	return filtered
 }
 
 // GenerateCode generates code based on the prompt and returns files without writing them

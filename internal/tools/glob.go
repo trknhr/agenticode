@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 type GlobTool struct{}
@@ -25,7 +26,7 @@ func (t *GlobTool) ReadOnly() bool {
 	return true
 }
 
-func (t *GlobTool) Execute(args map[string]interface{}) (interface{}, error) {
+func (t *GlobTool) Execute(args map[string]interface{}) (*ToolResult, error) {
 	pattern, ok := args["pattern"].(string)
 	if !ok {
 		return nil, fmt.Errorf("pattern is required")
@@ -98,11 +99,31 @@ func (t *GlobTool) Execute(args map[string]interface{}) (interface{}, error) {
 		sortedMatches[i] = fi.path
 	}
 
-	return map[string]interface{}{
-		"status":  "success",
-		"pattern": pattern,
-		"path":    path,
-		"matches": sortedMatches,
-		"count":   len(sortedMatches),
+	// Build LLM content
+	llmContent := fmt.Sprintf("Found %d files matching pattern '%s' in %s", len(sortedMatches), pattern, path)
+	if len(sortedMatches) > 0 {
+		llmContent += fmt.Sprintf(": %s", strings.Join(sortedMatches, ", "))
+		if len(sortedMatches) > 10 {
+			llmContent = fmt.Sprintf("Found %d files matching pattern '%s' in %s: %s... and %d more", 
+				len(sortedMatches), pattern, path, strings.Join(sortedMatches[:10], ", "), len(sortedMatches)-10)
+		}
+	}
+
+	// Build display content
+	displayContent := fmt.Sprintf("🔍 **Glob Results** for `%s` in `%s`\n\nFound **%d files**\n", pattern, path, len(sortedMatches))
+	if len(sortedMatches) > 0 {
+		displayContent += "```\n"
+		for _, match := range sortedMatches {
+			displayContent += match + "\n"
+		}
+		displayContent += "```"
+	} else {
+		displayContent += "\nNo files found matching the pattern."
+	}
+
+	return &ToolResult{
+		LLMContent:    llmContent,
+		ReturnDisplay: displayContent,
+		Error:         nil,
 	}, nil
 }

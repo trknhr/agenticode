@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	
+
 	"github.com/trknhr/agenticode/internal/tools"
 )
 
@@ -12,7 +12,7 @@ import (
 func GetCoreSystemPrompt() string {
 	// Get the list of available tools
 	availableTools := tools.GetDefaultTools()
-	
+
 	// Create a map of tool names for easy reference in the prompt
 	toolNames := make(map[string]string)
 	var toolNamesList []string
@@ -20,9 +20,9 @@ func GetCoreSystemPrompt() string {
 		toolNames[tool.Name()] = tool.Name()
 		toolNamesList = append(toolNamesList, tool.Name())
 	}
-	
+
 	// Build the base prompt with dynamic tool references
-	basePrompt := fmt.Sprintf(`You are an interactive CLI agent specializing in software engineering tasks. Your primary goal is to help users safely and efficiently, adhering strictly to the following instructions and utilizing your available tools.
+	basePrompt := fmt.Sprintf(`%s
 
 # Core Mandates
 
@@ -92,39 +92,39 @@ When requested to perform tasks like fixing bugs, adding features, refactoring, 
 # Available Tools
 
 You have access to the following tools:
-`,
+`, reasoningPrompt,
 		toolNames["grep"], toolNames["glob"], toolNames["read_file"], toolNames["read_many_files"],
 		toolNames["edit"], toolNames["write_file"], toolNames["run_shell"],
 		toolNames["write_file"], toolNames["edit"], toolNames["run_shell"],
 		toolNames["run_shell"],
 		toolNames["read_file"], toolNames["write_file"],
 		toolNames["run_shell"])
-	
+
 	// Add tool descriptions
 	basePrompt += "\n"
 	for _, tool := range availableTools {
 		basePrompt += fmt.Sprintf("- **%s:** %s\n", tool.Name(), tool.Description())
 	}
-	
+
 	basePrompt += "\n"
-	
+
 	// Add sandbox/environment specific instructions
 	basePrompt += getEnvironmentInstructions()
-	
+
 	// Add Git-specific instructions if in a Git repository
 	if isGitRepository() {
 		basePrompt += getGitInstructions()
 	}
-	
+
 	// Add examples with dynamic tool names
 	basePrompt += getExamplesWithTools(toolNames)
-	
+
 	// Add final reminder with dynamic tool names
 	basePrompt += fmt.Sprintf(`
 # Final Reminder
 Your core function is efficient and safe assistance. Balance extreme conciseness with the crucial need for clarity, especially regarding safety and potential system modifications. Always prioritize user control and project conventions. Never make assumptions about the contents of files; instead use '%s' or '%s' to ensure you aren't making broad assumptions. Finally, you are an agent - please keep going until the user's query is completely resolved.`,
 		toolNames["read_file"], toolNames["read_many_files"])
-	
+
 	return strings.TrimSpace(basePrompt)
 }
 
@@ -136,7 +136,7 @@ func getEnvironmentInstructions() string {
 You are running in dry-run mode. All file modifications will be simulated but not actually executed. Shell commands will still run normally. This mode is useful for previewing changes before applying them.
 `
 	}
-	
+
 	return ""
 }
 
@@ -252,6 +252,28 @@ model: [tool_call: %s for pattern '**/*.conf' and '**/*.config' and '**/config.*
 		toolNames["read_file"],
 		toolNames["glob"])
 }
+
+const reasoningPrompt = `
+You are an interactive CLI agent specializing in software engineering tasks. Your primary goal is to help users safely and efficiently, adhering strictly to the following instructions and utilizing your available tools.
+
+You MUST think step by step, and explain your reasoning BEFORE taking any action.
+
+At each step, follow this format:
+
+You MUST always respond in the following format:
+
+Do not include tool_call syntax inside the FinalResponse section. It should be a natural language explanation of the planned action.
+
+Reasoning:
+<your thoughts and explanation>
+
+FinalResponse:
+<user-facing explanation of the action you're about to take>
+
+Only terminate your turn when you are completely sure that the task is solved. Use tools to gather information rather than guessing.
+
+You MUST reflect on the result of each tool call before making the next move.
+`
 
 func isGitRepository() bool {
 	_, err := os.Stat(".git")
