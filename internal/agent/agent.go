@@ -177,19 +177,19 @@ func (a *Agent) ExecuteWithHistory(ctx context.Context, conversation []openai.Ch
 
 		// Schedule tool calls for approval
 		pendingCalls := a.scheduler.ScheduleToolCalls(ctx, response.ToolCalls)
-		
+
 		// Create approval request
 		approvalReq := ApprovalRequest{
 			RequestID: fmt.Sprintf("step-%d", len(result.Steps)+1),
 			ToolCalls: pendingCalls,
 			Risks:     make(map[string]RiskLevel),
 		}
-		
+
 		// Assess risks for each tool call
 		for _, call := range pendingCalls {
 			approvalReq.Risks[call.ID] = AssessToolCallRisk(call.ToolCall.Function.Name)
 		}
-		
+
 		// Request approval
 		approval, err := a.approver.RequestApproval(ctx, approvalReq)
 		if err != nil {
@@ -198,7 +198,7 @@ func (a *Agent) ExecuteWithHistory(ctx context.Context, conversation []openai.Ch
 			result.Message = fmt.Sprintf("Approval error: %v", err)
 			break
 		}
-		
+
 		// Handle rejection
 		if !approval.Approved && len(approval.ApprovedIDs) == 0 {
 			log.Println("All tool calls rejected by user")
@@ -206,11 +206,11 @@ func (a *Agent) ExecuteWithHistory(ctx context.Context, conversation []openai.Ch
 			result.Message = "Tool calls rejected by user"
 			break
 		}
-		
+
 		// Update scheduler with approval decisions
 		a.scheduler.ApproveCalls(approval.ApprovedIDs)
 		a.scheduler.RejectCalls(approval.RejectedIDs)
-		
+
 		// Execute approved tool calls
 		for i, toolCall := range response.ToolCalls {
 			// Check if this call was approved
@@ -221,7 +221,7 @@ func (a *Agent) ExecuteWithHistory(ctx context.Context, conversation []openai.Ch
 					break
 				}
 			}
-			
+
 			if !approved {
 				log.Printf("Skipping rejected tool call: %s", toolCall.Function.Name)
 				// Add rejection message to conversation
@@ -233,14 +233,14 @@ func (a *Agent) ExecuteWithHistory(ctx context.Context, conversation []openai.Ch
 				})
 				continue
 			}
-			
+
 			log.Printf("Executing approved tool call %d/%d: %s", i+1, len(response.ToolCalls), toolCall.Function.Name)
 			stepResult := a.executeToolCall(toolCall, dryrun)
 			result.Steps = append(result.Steps, stepResult)
-			
+
 			// Mark as executed in scheduler
 			a.scheduler.MarkExecuted(toolCall.ID, stepResult.Result, stepResult.Error)
-			
+
 			// Notify approver of execution result
 			a.approver.NotifyExecution(toolCall.ID, stepResult.Result, stepResult.Error)
 

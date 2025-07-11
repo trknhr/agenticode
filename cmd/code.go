@@ -66,15 +66,20 @@ Examples:
 			os.Exit(1)
 		}
 
-		// Create agent with tools
-		codeAgent := agent.New(llmClient,
+		// Create interactive approver with auto-approval for safe tools
+		approver := agent.NewInteractiveApprover()
+		approver.SetAutoApprove([]string{"read_file", "read", "list_files", "grep", "glob", "read_many_files"})
+		
+		// Create agent with tools using the new event-driven architecture
+		codeAgent := agent.NewAgentV2(llmClient,
 			agent.WithTools(tools.GetDefaultTools()),
 			agent.WithMaxSteps(10),
+			agent.WithApprover(approver),
 		)
 
 		// Execute the task
 		ctx := context.Background()
-		result, err := codeAgent.ExecuteTask(ctx, description, dryRun)
+		result, err := codeAgent.Execute(ctx, description, dryRun)
 		if err != nil {
 			fmt.Printf("❌ Error executing task: %v\n", err)
 			os.Exit(1)
