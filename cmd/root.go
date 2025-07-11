@@ -85,7 +85,11 @@ func runInteractiveMode(cmd *cobra.Command, args []string) error {
 		maxSteps = 15
 	}
 
-	agentInstance := agent.New(client, agent.WithMaxSteps(maxSteps))
+	// Create interactive approver with auto-approval for safe tools
+	approver := agent.NewInteractiveApprover()
+	approver.SetAutoApprove([]string{"read_file", "read", "list_files", "grep", "glob", "read_many_files"})
+	
+	agentInstance := agent.New(client, agent.WithMaxSteps(maxSteps), agent.WithApprover(approver))
 
 	// Start interactive session
 	fmt.Println("AgentiCode Interactive Mode")

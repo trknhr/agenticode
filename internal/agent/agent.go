@@ -17,6 +17,8 @@ type Agent struct {
 	llmClient llm.Client
 	tools     map[string]tools.Tool
 	maxSteps  int
+	scheduler *ToolCallScheduler
+	approver  ToolApprover
 }
 
 type AgentConfig struct {
@@ -30,6 +32,7 @@ func New(llmClient llm.Client, opts ...Option) *Agent {
 		llmClient: llmClient,
 		tools:     make(map[string]tools.Tool),
 		maxSteps:  10,
+		scheduler: NewToolCallScheduler(),
 	}
 
 	// Apply options
@@ -41,6 +44,11 @@ func New(llmClient llm.Client, opts ...Option) *Agent {
 	defaultTools := tools.GetDefaultTools()
 	for _, tool := range defaultTools {
 		a.tools[tool.Name()] = tool
+	}
+
+	// Set default approver if not provided
+	if a.approver == nil {
+		a.approver = NewInteractiveApprover()
 	}
 
 	return a
@@ -62,6 +70,13 @@ func WithTools(tools []tools.Tool) Option {
 		for _, tool := range tools {
 			a.tools[tool.Name()] = tool
 		}
+	}
+}
+
+// WithApprover sets the tool approver
+func WithApprover(approver ToolApprover) Option {
+	return func(a *Agent) {
+		a.approver = approver
 	}
 }
 
@@ -160,11 +175,74 @@ func (a *Agent) ExecuteWithHistory(ctx context.Context, conversation []openai.Ch
 
 		log.Printf("LLM requested %d tool call(s)", len(response.ToolCalls))
 
-		// Execute tool calls
+		// Schedule tool calls for approval
+		pendingCalls := a.scheduler.ScheduleToolCalls(ctx, response.ToolCalls)
+		
+		// Create approval request
+		approvalReq := ApprovalRequest{
+			RequestID: fmt.Sprintf("step-%d", len(result.Steps)+1),
+			ToolCalls: pendingCalls,
+			Risks:     make(map[string]RiskLevel),
+		}
+		
+		// Assess risks for each tool call
+		for _, call := range pendingCalls {
+			approvalReq.Risks[call.ID] = AssessToolCallRisk(call.ToolCall.Function.Name)
+		}
+		
+		// Request approval
+		approval, err := a.approver.RequestApproval(ctx, approvalReq)
+		if err != nil {
+			log.Printf("Error requesting approval: %v", err)
+			result.Success = false
+			result.Message = fmt.Sprintf("Approval error: %v", err)
+			break
+		}
+		
+		// Handle rejection
+		if !approval.Approved && len(approval.ApprovedIDs) == 0 {
+			log.Println("All tool calls rejected by user")
+			result.Success = false
+			result.Message = "Tool calls rejected by user"
+			break
+		}
+		
+		// Update scheduler with approval decisions
+		a.scheduler.ApproveCalls(approval.ApprovedIDs)
+		a.scheduler.RejectCalls(approval.RejectedIDs)
+		
+		// Execute approved tool calls
 		for i, toolCall := range response.ToolCalls {
-			log.Printf("Executing tool call %d/%d: %s", i+1, len(response.ToolCalls), toolCall.Function.Name)
+			// Check if this call was approved
+			approved := false
+			for _, approvedID := range approval.ApprovedIDs {
+				if toolCall.ID == approvedID {
+					approved = true
+					break
+				}
+			}
+			
+			if !approved {
+				log.Printf("Skipping rejected tool call: %s", toolCall.Function.Name)
+				// Add rejection message to conversation
+				conversation = append(conversation, openai.ChatCompletionMessage{
+					Role:       "tool",
+					Name:       toolCall.Function.Name,
+					Content:    "Tool call rejected by user",
+					ToolCallID: toolCall.ID,
+				})
+				continue
+			}
+			
+			log.Printf("Executing approved tool call %d/%d: %s", i+1, len(response.ToolCalls), toolCall.Function.Name)
 			stepResult := a.executeToolCall(toolCall, dryrun)
 			result.Steps = append(result.Steps, stepResult)
+			
+			// Mark as executed in scheduler
+			a.scheduler.MarkExecuted(toolCall.ID, stepResult.Result, stepResult.Error)
+			
+			// Notify approver of execution result
+			a.approver.NotifyExecution(toolCall.ID, stepResult.Result, stepResult.Error)
 
 			// Add tool result to conversation
 			var toolContent string
@@ -373,20 +451,6 @@ func (a *Agent) GenerateCode(ctx context.Context, prompt string, dryRun bool) (m
 	}
 
 	return files, nil
-}
-
-func (a *Agent) isTaskComplete(response *LLMResponse) bool {
-	// Reasoningセクションに完了シグナルがあるかチェック
-	if response.Reasoning != "" && strings.Contains(response.Reasoning, "TASK_COMPLETED") {
-		return true
-	}
-
-	// フォールバック: ツール呼び出しがなく、実質的な応答がある場合
-	if len(response.ToolCalls) == 0 && len(response.Content) > 100 {
-		return true
-	}
-
-	return false
 }
 
 func (a *Agent) detectRepetitiveActions(steps []ExecutionStep) bool {

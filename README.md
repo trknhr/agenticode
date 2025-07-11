@@ -11,7 +11,7 @@ agenticode is a CLI tool for natural language code generation using Large Langua
 - **Multi-Provider LLM Support**: Currently supports OpenAI with plans for Ollama and other providers
 - **Tool System**: Extensible tool interface for file operations and shell commands
 - **Evaluation Framework**: Built-in evaluation system with static checks and GPT-based code quality assessment
-- **Safety Features**: User confirmation before file writes, command filtering for security
+- **Safety Features**: Tool approval system with risk assessment, auto-approval for safe operations, and user confirmation for modifications
 
 ## Installation
 
@@ -71,6 +71,15 @@ openai:
 general:
   max_steps: 10
   confirm_before_write: true
+approval:
+  mode: "interactive"
+  auto_approve:
+    - "read_file"
+    - "read"
+    - "list_files"
+    - "grep"
+    - "glob"
+    - "read_many_files"
 ```
 
 ## Commands
@@ -87,6 +96,12 @@ Interactive mode commands:
 - `exit` or `quit`: End the session
 - `clear`: Clear conversation history
 - `history`: View conversation history
+
+Tool Approval:
+- The agent will request approval before executing tools that modify your system
+- Read-only operations are auto-approved by default
+- You can approve all, reject all, or select individual tools
+- See [Approval System Documentation](docs/approval-system.md) for details
 
 ### `code` - Generate Code
 Generate code from natural language descriptions.
