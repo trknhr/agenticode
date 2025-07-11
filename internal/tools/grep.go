@@ -27,6 +27,27 @@ func (t *GrepTool) ReadOnly() bool {
 	return true
 }
 
+func (t *GrepTool) GetParameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"pattern": map[string]interface{}{
+				"type":        "string",
+				"description": "The regular expression pattern to search for",
+			},
+			"path": map[string]interface{}{
+				"type":        "string",
+				"description": "The directory to search in (defaults to current directory)",
+			},
+			"include": map[string]interface{}{
+				"type":        "string",
+				"description": "File pattern to include in the search (e.g. '*.js', '*.{ts,tsx}')",
+			},
+		},
+		"required": []string{"pattern"},
+	}
+}
+
 func (t *GrepTool) Execute(args map[string]interface{}) (*ToolResult, error) {
 	pattern, ok := args["pattern"].(string)
 	if !ok {

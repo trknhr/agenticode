@@ -14,6 +14,7 @@ type Tool interface {
 	Description() string
 	ReadOnly() bool
 	Execute(args map[string]interface{}) (*ToolResult, error)
+	GetParameters() map[string]interface{}
 }
 
 // ToolResult represents the result of a tool execution
@@ -37,7 +38,7 @@ func (t *WriteFileTool) Name() string {
 }
 
 func (t *WriteFileTool) Description() string {
-	return "Write content to a file"
+	return "Create a new file or overwrite an existing file with specified content (WARNING: destroys existing content)"
 }
 
 func (t *WriteFileTool) ReadOnly() bool {
@@ -72,6 +73,23 @@ func (t *WriteFileTool) Execute(args map[string]interface{}) (*ToolResult, error
 		ReturnDisplay: fmt.Sprintf("✅ Created file: `%s` (%d lines)", path, lines),
 		Error:         nil,
 	}, nil
+}
+
+func (t *WriteFileTool) GetParameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"path": map[string]interface{}{
+				"type":        "string",
+				"description": "The file path to write to",
+			},
+			"content": map[string]interface{}{
+				"type":        "string",
+				"description": "The content to write to the file",
+			},
+		},
+		"required": []string{"path", "content"},
+	}
 }
 
 type RunShellTool struct{}
@@ -152,6 +170,19 @@ func (t *RunShellTool) Execute(args map[string]interface{}) (*ToolResult, error)
 	}, nil
 }
 
+func (t *RunShellTool) GetParameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"command": map[string]interface{}{
+				"type":        "string",
+				"description": "The shell command to execute",
+			},
+		},
+		"required": []string{"command"},
+	}
+}
+
 type ReadFileTool struct{}
 
 func NewReadFileTool() *ReadFileTool {
@@ -163,11 +194,24 @@ func (t *ReadFileTool) Name() string {
 }
 
 func (t *ReadFileTool) Description() string {
-	return "Read content from a file"
+	return "Read and display the contents of an existing file (use this to view, explain, or analyze files)"
 }
 
 func (t *ReadFileTool) ReadOnly() bool {
 	return true
+}
+
+func (t *ReadFileTool) GetParameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"path": map[string]interface{}{
+				"type":        "string",
+				"description": "The file path to read",
+			},
+		},
+		"required": []string{"path"},
+	}
 }
 
 func (t *ReadFileTool) Execute(args map[string]interface{}) (*ToolResult, error) {
@@ -214,6 +258,18 @@ func (t *ListFilesTool) Description() string {
 
 func (t *ListFilesTool) ReadOnly() bool {
 	return true
+}
+
+func (t *ListFilesTool) GetParameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"path": map[string]interface{}{
+				"type":        "string",
+				"description": "The directory path to list (defaults to current directory)",
+			},
+		},
+	}
 }
 
 func (t *ListFilesTool) Execute(args map[string]interface{}) (*ToolResult, error) {
@@ -275,6 +331,19 @@ func (t *ApplyPatchTool) ReadOnly() bool {
 	return false
 }
 
+func (t *ApplyPatchTool) GetParameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"patch": map[string]interface{}{
+				"type":        "string",
+				"description": "The unified diff patch to apply",
+			},
+		},
+		"required": []string{"patch"},
+	}
+}
+
 func (t *ApplyPatchTool) Execute(args map[string]interface{}) (*ToolResult, error) {
 	// TODO: Implement patch application
 	return nil, fmt.Errorf("not yet implemented")
@@ -284,6 +353,7 @@ func GetDefaultTools() []Tool {
 	return []Tool{
 		&WriteFileTool{},
 		&RunShellTool{},
+		&ReadTool{},
 		&ReadFileTool{},
 		&ListFilesTool{},
 		&GrepTool{},

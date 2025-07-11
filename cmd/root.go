@@ -12,7 +12,6 @@ import (
 	"github.com/spf13/viper"
 	"github.com/trknhr/agenticode/internal/agent"
 	"github.com/trknhr/agenticode/internal/llm"
-	"github.com/trknhr/agenticode/internal/tools"
 )
 
 var cfgFile string
@@ -181,15 +180,6 @@ func runInteractiveMode(cmd *cobra.Command, args []string) error {
 		// Display the response
 		if response.Message != "" {
 			fmt.Printf("\n%s\n", response.Message)
-		}
-
-		// Display tool execution results
-		for _, step := range response.Steps {
-			if step.Result != nil {
-				if toolResult, ok := step.Result.(*tools.ToolResult); ok && toolResult.ReturnDisplay != "" {
-					fmt.Printf("\n%s\n", toolResult.ReturnDisplay)
-				}
-			}
 		}
 
 		// Show any generated files summary

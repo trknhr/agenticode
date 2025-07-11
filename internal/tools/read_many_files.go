@@ -25,6 +25,28 @@ func (t *ReadManyFilesTool) ReadOnly() bool {
 	return true
 }
 
+func (t *ReadManyFilesTool) GetParameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"paths": map[string]interface{}{
+				"type": "array",
+				"items": map[string]interface{}{
+					"type": "string",
+				},
+				"description": "Array of file paths to read",
+			},
+			"patterns": map[string]interface{}{
+				"type": "array",
+				"items": map[string]interface{}{
+					"type": "string",
+				},
+				"description": "Array of glob patterns to match files",
+			},
+		},
+	}
+}
+
 func (t *ReadManyFilesTool) Execute(args map[string]interface{}) (*ToolResult, error) {
 	// Accept either "paths" (array) or "patterns" (array of glob patterns)
 	var filePaths []string

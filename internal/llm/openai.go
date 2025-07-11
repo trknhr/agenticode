@@ -4,6 +4,7 @@ import (
 	"context"
 
 	openai "github.com/sashabaranov/go-openai"
+	"github.com/trknhr/agenticode/internal/tools"
 )
 
 type OpenAIClient struct {
@@ -91,44 +92,26 @@ func (c *OpenAIClient) Stream(ctx context.Context, messages []openai.ChatComplet
 }
 
 func (c *OpenAIClient) getOpenAITools() []openai.Tool {
-	return []openai.Tool{
-		{
+	// Get all available tools from the tools package
+	defaultTools := tools.GetDefaultTools()
+	
+	// Convert to OpenAI tool definitions
+	openAITools := make([]openai.Tool, 0, len(defaultTools))
+	for _, tool := range defaultTools {
+		// Skip tools that are not yet implemented
+		if tool.Name() == "apply_patch" {
+			continue
+		}
+		
+		openAITools = append(openAITools, openai.Tool{
 			Type: "function",
 			Function: openai.FunctionDefinition{
-				Name:        "write_file",
-				Description: "Write content to a file",
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"path": map[string]interface{}{
-							"type":        "string",
-							"description": "The file path",
-						},
-						"content": map[string]interface{}{
-							"type":        "string",
-							"description": "The file content",
-						},
-					},
-					"required": []string{"path", "content"},
-				},
+				Name:        tool.Name(),
+				Description: tool.Description(),
+				Parameters:  tool.GetParameters(),
 			},
-		},
-		{
-			Type: "function",
-			Function: openai.FunctionDefinition{
-				Name:        "run_shell",
-				Description: "Execute a shell command",
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"command": map[string]interface{}{
-							"type":        "string",
-							"description": "The command to execute",
-						},
-					},
-					"required": []string{"command"},
-				},
-			},
-		},
+		})
 	}
+	
+	return openAITools
 }

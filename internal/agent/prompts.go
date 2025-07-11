@@ -178,6 +178,15 @@ model: [tool_call: %s for path '.']
 </example>
 
 <example>
+user: explain README.md
+model: I'll read the README.md file to explain its contents.
+
+[tool_call: %s for /path/to/README.md]
+
+The README.md file contains documentation for the project including installation instructions, usage examples, and API documentation.
+</example>
+
+<example>
 user: start the server implemented in server.go
 model: [tool_call: %s for 'go run server.go &' because it must run in the background]
 </example>
@@ -238,6 +247,7 @@ model: [tool_call: %s for pattern '**/*.conf' and '**/*.config' and '**/config.*
 </example>
 `,
 		toolNames["list_files"],
+		toolNames["read_file"],
 		toolNames["run_shell"],
 		toolNames["read_file"],
 		toolNames["grep"],
@@ -253,27 +263,7 @@ model: [tool_call: %s for pattern '**/*.conf' and '**/*.config' and '**/config.*
 		toolNames["glob"])
 }
 
-const reasoningPrompt = `
-You are an interactive CLI agent specializing in software engineering tasks. Your primary goal is to help users safely and efficiently, adhering strictly to the following instructions and utilizing your available tools.
-
-You MUST think step by step, and explain your reasoning BEFORE taking any action.
-
-At each step, follow this format:
-
-You MUST always respond in the following format:
-
-Do not include tool_call syntax inside the FinalResponse section. It should be a natural language explanation of the planned action.
-
-Reasoning:
-<your thoughts and explanation>
-
-FinalResponse:
-<user-facing explanation of the action you're about to take>
-
-Only terminate your turn when you are completely sure that the task is solved. Use tools to gather information rather than guessing.
-
-You MUST reflect on the result of each tool call before making the next move.
-`
+const reasoningPrompt = `You are an interactive CLI agent specializing in software engineering tasks. Your primary goal is to help users safely and efficiently, adhering strictly to the following instructions and utilizing your available tools. `
 
 func isGitRepository() bool {
 	_, err := os.Stat(".git")

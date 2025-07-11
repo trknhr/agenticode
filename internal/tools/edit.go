@@ -24,6 +24,31 @@ func (t *EditTool) ReadOnly() bool {
 	return false
 }
 
+func (t *EditTool) GetParameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"file_path": map[string]interface{}{
+				"type":        "string",
+				"description": "The file path to edit",
+			},
+			"old_string": map[string]interface{}{
+				"type":        "string",
+				"description": "The exact string to replace",
+			},
+			"new_string": map[string]interface{}{
+				"type":        "string",
+				"description": "The string to replace it with",
+			},
+			"replace_all": map[string]interface{}{
+				"type":        "boolean",
+				"description": "Replace all occurrences (default false)",
+			},
+		},
+		"required": []string{"file_path", "old_string", "new_string"},
+	}
+}
+
 func (t *EditTool) Execute(args map[string]interface{}) (*ToolResult, error) {
 	filePath, ok := args["file_path"].(string)
 	if !ok {

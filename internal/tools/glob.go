@@ -26,6 +26,23 @@ func (t *GlobTool) ReadOnly() bool {
 	return true
 }
 
+func (t *GlobTool) GetParameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"pattern": map[string]interface{}{
+				"type":        "string",
+				"description": "The glob pattern to match files against",
+			},
+			"path": map[string]interface{}{
+				"type":        "string",
+				"description": "The directory to search in (defaults to current directory)",
+			},
+		},
+		"required": []string{"pattern"},
+	}
+}
+
 func (t *GlobTool) Execute(args map[string]interface{}) (*ToolResult, error) {
 	pattern, ok := args["pattern"].(string)
 	if !ok {

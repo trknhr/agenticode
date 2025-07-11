@@ -85,7 +85,6 @@ type ExecutionStep struct {
 	ToolArgs   map[string]interface{}
 	Result     interface{}
 	Error      error
-	Reasoning  string
 }
 
 func (a *Agent) ExecuteTask(ctx context.Context, task string, dryrun bool) (*ExecutionResult, error) {
@@ -132,22 +131,22 @@ func (a *Agent) ExecuteWithHistory(ctx context.Context, conversation []openai.Ch
 			return result, conversation, fmt.Errorf("LLM call failed: %w", err)
 		}
 
-		if response.Role == "model" {
-			// Add assistant response to conversation
-			conversation = append(conversation, openai.ChatCompletionMessage{
-				Role:      "assistant",
-				Content:   response.Content,
-				ToolCalls: response.ToolCalls,
-			})
-		}
+		// Add assistant response to conversation
+		conversation = append(conversation, openai.ChatCompletionMessage{
+			Role:      "assistant",
+			Content:   response.Content,
+			ToolCalls: response.ToolCalls,
+		})
 
 		if response.Content != "" {
 			log.Printf("LLM response: %s", response.Content)
 		}
 
-		if response.Reasoning != "" {
-			log.Printf("Thinking %s", response.Reasoning)
-
+		if a.detectRepetitiveActions(result.Steps) {
+			log.Println("Detected repetitive actions, stopping execution")
+			result.Success = false
+			result.Message = "Stopped due to repetitive actions. Please check if the task is already complete."
+			break
 		}
 
 		// Check if there are tool calls
@@ -316,20 +315,6 @@ func (a *Agent) executeToolCall(toolCall openai.ToolCall, dryrun bool) Execution
 	}
 	step.ToolArgs = args
 
-	// Execute tool
-	if !tool.ReadOnly() && dryrun {
-		path, _ := args["path"].(string)
-		
-		// Create a fake ToolResult for dry-run
-		step.Result = &tools.ToolResult{
-			LLMContent:    fmt.Sprintf("(Dry-run) Would write file: %s", path),
-			ReturnDisplay: fmt.Sprintf("🔄 **Dry-run**: Would create `%s`", path),
-			Error:         nil,
-		}
-		step.Error = nil
-		return step
-	}
-
 	result, err := tool.Execute(args)
 	if err != nil {
 		step.Error = err
@@ -341,22 +326,6 @@ func (a *Agent) executeToolCall(toolCall openai.ToolCall, dryrun bool) Execution
 
 	if err != nil {
 		log.Printf("Tool execution failed: %s - %v", toolCall.Function.Name, err)
-	} else {
-		if toolCall.Function.Name == "write_file" {
-			if path, ok := args["path"].(string); ok {
-				log.Printf("Tool executed successfully: %s - file: %s", toolCall.Function.Name, path)
-			} else {
-				log.Printf("Tool executed successfully: %s", toolCall.Function.Name)
-			}
-		} else if toolCall.Function.Name == "run_shell" {
-			if cmd, ok := args["command"].(string); ok {
-				log.Printf("Tool executed successfully: %s - command: %s", toolCall.Function.Name, cmd)
-			} else {
-				log.Printf("Tool executed successfully: %s", toolCall.Function.Name)
-			}
-		} else {
-			log.Printf("Tool executed successfully: %s", toolCall.Function.Name)
-		}
 	}
 
 	return step
@@ -404,4 +373,42 @@ func (a *Agent) GenerateCode(ctx context.Context, prompt string, dryRun bool) (m
 	}
 
 	return files, nil
+}
+
+func (a *Agent) isTaskComplete(response *LLMResponse) bool {
+	// Reasoningセクションに完了シグナルがあるかチェック
+	if response.Reasoning != "" && strings.Contains(response.Reasoning, "TASK_COMPLETED") {
+		return true
+	}
+
+	// フォールバック: ツール呼び出しがなく、実質的な応答がある場合
+	if len(response.ToolCalls) == 0 && len(response.Content) > 100 {
+		return true
+	}
+
+	return false
+}
+
+func (a *Agent) detectRepetitiveActions(steps []ExecutionStep) bool {
+	if len(steps) < 3 {
+		return false
+	}
+
+	// 最後の3つのステップを確認
+	recent := steps[len(steps)-3:]
+
+	// 同じコマンドが繰り返されているかチェック
+	commands := make(map[string]int)
+	for _, step := range recent {
+		if step.ToolName == "run_shell" {
+			if cmd, ok := step.ToolArgs["command"].(string); ok {
+				commands[cmd]++
+				if commands[cmd] >= 2 {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
 }
