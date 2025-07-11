@@ -17,25 +17,17 @@ type Agent struct {
 	llmClient llm.Client
 	tools     map[string]tools.Tool
 	maxSteps  int
-	scheduler *ToolCallScheduler
 	approver  ToolApprover
 }
 
-type AgentConfig struct {
-	LLMClient llm.Client
-	Tools     []tools.Tool
-	MaxSteps  int
-}
-
-func New(llmClient llm.Client, opts ...Option) *Agent {
+// NewAgentV2 creates a new event-driven agent
+func NewAgent(llmClient llm.Client, opts ...Option) *Agent {
 	a := &Agent{
 		llmClient: llmClient,
 		tools:     make(map[string]tools.Tool),
 		maxSteps:  10,
-		scheduler: NewToolCallScheduler(),
 	}
 
-	// Apply options
 	for _, opt := range opts {
 		opt(a)
 	}
@@ -52,6 +44,12 @@ func New(llmClient llm.Client, opts ...Option) *Agent {
 	}
 
 	return a
+}
+
+type AgentConfig struct {
+	LLMClient llm.Client
+	Tools     []tools.Tool
+	MaxSteps  int
 }
 
 // Option configures an Agent
@@ -102,6 +100,106 @@ type ExecutionStep struct {
 	Error      error
 }
 
+func (a *Agent) ExecuteWithHistory(ctx context.Context, conversation []openai.ChatCompletionMessage, dryrun bool) (*ExecutionResult, []openai.ChatCompletionMessage, error) {
+	result := &ExecutionResult{
+		Success:        false,
+		GeneratedFiles: []GeneratedFile{},
+		Steps:          []ExecutionStep{},
+	}
+
+	// Create handler
+	handler := NewTurnHandler(a.tools, a.approver)
+
+	// Main execution loop
+	for i := 0; i < a.maxSteps; i++ {
+		log.Printf("Starting turn %d/%d", i+1, a.maxSteps)
+
+		// Create a new turn
+		turn := NewTurn(a.llmClient, a.tools, conversation)
+
+		// Handle the turn
+		if err := handler.HandleTurn(ctx, turn); err != nil {
+			result.Success = false
+			result.Message = fmt.Sprintf("Turn failed: %v", err)
+			return result, conversation, err
+		}
+
+		// Update conversation from turn (includes assistant response)
+		conversation = turn.GetConversation()
+
+		// Add tool responses to conversation
+		toolResponses := handler.GetToolResponses()
+		conversation = append(conversation, toolResponses...)
+
+		// Check if there were any pending calls
+		pendingCalls := turn.GetPendingCalls()
+		if len(pendingCalls) == 0 {
+			// No tool calls means the agent is done
+			log.Println("No tool calls in this turn, task completed")
+			result.Success = true
+			// Extract final message from conversation
+			if len(conversation) > 0 {
+				lastMsg := conversation[len(conversation)-1]
+				if lastMsg.Role == "assistant" {
+					result.Message = lastMsg.Content
+				}
+			}
+			break
+		}
+
+		// Track executed tools
+		for _, call := range pendingCalls {
+			result.Steps = append(result.Steps, ExecutionStep{
+				StepNumber: len(result.Steps) + 1,
+				Action:     "tool_call",
+				ToolName:   call.Name,
+				ToolArgs:   call.Args,
+				// Result will be updated by handler
+			})
+
+			// Track generated files
+			if call.Name == "write_file" {
+				if path, ok := call.Args["path"].(string); ok {
+					content := ""
+					if c, ok := call.Args["content"].(string); ok {
+						content = c
+					}
+					result.GeneratedFiles = append(result.GeneratedFiles, GeneratedFile{
+						Path:    path,
+						Content: content,
+						Action:  "create",
+					})
+				}
+			}
+		}
+	}
+
+	if len(result.Steps) >= a.maxSteps {
+		log.Printf("WARNING: Maximum steps (%d) reached without completion", a.maxSteps)
+		result.Success = false
+		result.Message = "Maximum steps reached"
+	}
+
+	return result, conversation, nil
+}
+
+// Execute runs a single task (for compatibility)
+func (a *Agent) Execute(ctx context.Context, task string, dryrun bool) (*ExecutionResult, error) {
+	conversation := []openai.ChatCompletionMessage{
+		{
+			Role:    "system",
+			Content: GetCoreSystemPrompt(),
+		},
+		{
+			Role:    "user",
+			Content: task,
+		},
+	}
+
+	result, _, err := a.ExecuteWithHistory(ctx, conversation, dryrun)
+	return result, err
+}
+
 func (a *Agent) ExecuteTask(ctx context.Context, task string, dryrun bool) (*ExecutionResult, error) {
 	log.Printf("Starting task execution: %s", task)
 
@@ -118,185 +216,6 @@ func (a *Agent) ExecuteTask(ctx context.Context, task string, dryrun bool) (*Exe
 
 	result, _, err := a.ExecuteWithHistory(ctx, conversation, dryrun)
 	return result, err
-}
-
-// ExecuteWithHistory executes a task with a given conversation history
-// It returns the result and the updated conversation history
-func (a *Agent) ExecuteWithHistory(ctx context.Context, conversation []openai.ChatCompletionMessage, dryrun bool) (*ExecutionResult, []openai.ChatCompletionMessage, error) {
-	if dryrun {
-		log.Println("Running in dry-run mode")
-	}
-
-	result := &ExecutionResult{
-		Steps: make([]ExecutionStep, 0),
-	}
-
-	for step := 0; step < a.maxSteps; step++ {
-		log.Printf("Processing step %d/%d", step+1, a.maxSteps)
-
-		// Get next action from LLM
-		log.Println("Calling LLM for next action...")
-
-		// Filter conversation to remove orphaned tool messages
-		// (tool messages without preceding tool_calls)
-		filteredConversation := filterConversationForLLM(conversation)
-
-		response, err := a.callLLM(ctx, filteredConversation)
-		if err != nil {
-			return result, conversation, fmt.Errorf("LLM call failed: %w", err)
-		}
-
-		// Add assistant response to conversation
-		conversation = append(conversation, openai.ChatCompletionMessage{
-			Role:      "assistant",
-			Content:   response.Content,
-			ToolCalls: response.ToolCalls,
-		})
-
-		if response.Content != "" {
-			log.Printf("LLM response: %s", response.Content)
-		}
-
-		if a.detectRepetitiveActions(result.Steps) {
-			log.Println("Detected repetitive actions, stopping execution")
-			result.Success = false
-			result.Message = "Stopped due to repetitive actions. Please check if the task is already complete."
-			break
-		}
-
-		// Check if there are tool calls
-		if len(response.ToolCalls) == 0 {
-			// No more tool calls, agent is done
-			log.Println("No more tool calls needed, task completed")
-			result.Success = true
-			result.Message = response.Content
-			break
-		}
-
-		log.Printf("LLM requested %d tool call(s)", len(response.ToolCalls))
-
-		// Schedule tool calls for approval
-		pendingCalls := a.scheduler.ScheduleToolCalls(ctx, response.ToolCalls)
-
-		// Create approval request
-		approvalReq := ApprovalRequest{
-			RequestID: fmt.Sprintf("step-%d", len(result.Steps)+1),
-			ToolCalls: pendingCalls,
-			Risks:     make(map[string]RiskLevel),
-		}
-
-		// Assess risks for each tool call
-		for _, call := range pendingCalls {
-			approvalReq.Risks[call.ID] = AssessToolCallRisk(call.ToolCall.Function.Name)
-		}
-
-		// Request approval
-		approval, err := a.approver.RequestApproval(ctx, approvalReq)
-		if err != nil {
-			log.Printf("Error requesting approval: %v", err)
-			result.Success = false
-			result.Message = fmt.Sprintf("Approval error: %v", err)
-			break
-		}
-
-		// Handle rejection
-		if !approval.Approved && len(approval.ApprovedIDs) == 0 {
-			log.Println("All tool calls rejected by user")
-			result.Success = false
-			result.Message = "Tool calls rejected by user"
-			break
-		}
-
-		// Update scheduler with approval decisions
-		a.scheduler.ApproveCalls(approval.ApprovedIDs)
-		a.scheduler.RejectCalls(approval.RejectedIDs)
-
-		// Execute approved tool calls
-		for i, toolCall := range response.ToolCalls {
-			// Check if this call was approved
-			approved := false
-			for _, approvedID := range approval.ApprovedIDs {
-				if toolCall.ID == approvedID {
-					approved = true
-					break
-				}
-			}
-
-			if !approved {
-				log.Printf("Skipping rejected tool call: %s", toolCall.Function.Name)
-				// Add rejection message to conversation
-				conversation = append(conversation, openai.ChatCompletionMessage{
-					Role:       "tool",
-					Name:       toolCall.Function.Name,
-					Content:    "Tool call rejected by user",
-					ToolCallID: toolCall.ID,
-				})
-				continue
-			}
-
-			log.Printf("Executing approved tool call %d/%d: %s", i+1, len(response.ToolCalls), toolCall.Function.Name)
-			stepResult := a.executeToolCall(toolCall, dryrun)
-			result.Steps = append(result.Steps, stepResult)
-
-			// Mark as executed in scheduler
-			a.scheduler.MarkExecuted(toolCall.ID, stepResult.Result, stepResult.Error)
-
-			// Notify approver of execution result
-			a.approver.NotifyExecution(toolCall.ID, stepResult.Result, stepResult.Error)
-
-			// Add tool result to conversation
-			var toolContent string
-			if stepResult.Error != nil {
-				toolContent = fmt.Sprintf("Error: %v", stepResult.Error)
-			} else if stepResult.Result != nil {
-				// Use the LLMContent for the conversation history
-				if toolResult, ok := stepResult.Result.(*tools.ToolResult); ok {
-					toolContent = toolResult.LLMContent
-				} else {
-					// Fallback for any tools that might not return ToolResult yet
-					toolContent = jsonString(stepResult.Result)
-				}
-			}
-
-			conversation = append(conversation, openai.ChatCompletionMessage{
-				Role:       "tool",
-				Name:       stepResult.ToolName,
-				Content:    toolContent,
-				ToolCallID: toolCall.ID,
-			})
-
-			log.Printf("Executing tool call: %v", conversation[len(conversation)-1])
-			// Track generated files
-			if toolCall.Function.Name == "write_file" && stepResult.Error == nil {
-				if args, ok := stepResult.ToolArgs["path"].(string); ok {
-					content := ""
-					if c, ok := stepResult.ToolArgs["content"].(string); ok {
-						content = c
-					}
-					log.Printf("File to be written: %s", args)
-					result.GeneratedFiles = append(result.GeneratedFiles, GeneratedFile{
-						Path:    args,
-						Content: content,
-						Action:  "create",
-					})
-				}
-			}
-		}
-	}
-
-	if len(result.Steps) >= a.maxSteps {
-		log.Printf("WARNING: Maximum steps (%d) reached without completion", a.maxSteps)
-		result.Success = false
-		result.Message = "Maximum steps reached"
-	}
-
-	if result.Success {
-		log.Printf("Task completed successfully with %d files generated", len(result.GeneratedFiles))
-	} else {
-		log.Printf("Task failed: %s", result.Message)
-	}
-
-	return result, conversation, nil
 }
 
 type LLMResponse struct {

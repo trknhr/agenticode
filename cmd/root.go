@@ -88,8 +88,8 @@ func runInteractiveMode(cmd *cobra.Command, args []string) error {
 	// Create interactive approver with auto-approval for safe tools
 	approver := agent.NewInteractiveApprover()
 	approver.SetAutoApprove([]string{"read_file", "read", "list_files", "grep", "glob", "read_many_files"})
-	
-	agentInstance := agent.NewAgentV2(client, agent.WithMaxSteps(maxSteps), agent.WithApprover(approver))
+
+	agentInstance := agent.NewAgent(client, agent.WithMaxSteps(maxSteps), agent.WithApprover(approver))
 
 	// Start interactive session
 	fmt.Println("AgentiCode Interactive Mode")

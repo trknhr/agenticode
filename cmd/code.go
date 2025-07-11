@@ -69,9 +69,9 @@ Examples:
 		// Create interactive approver with auto-approval for safe tools
 		approver := agent.NewInteractiveApprover()
 		approver.SetAutoApprove([]string{"read_file", "read", "list_files", "grep", "glob", "read_many_files"})
-		
+
 		// Create agent with tools using the new event-driven architecture
-		codeAgent := agent.NewAgentV2(llmClient,
+		codeAgent := agent.NewAgent(llmClient,
 			agent.WithTools(tools.GetDefaultTools()),
 			agent.WithMaxSteps(10),
 			agent.WithApprover(approver),

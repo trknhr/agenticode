@@ -27,7 +27,7 @@ type Runner struct {
 
 // NewRunner creates a new evaluation runner
 func NewRunner(llmClient llm.Client, opts ...RunnerOption) *Runner {
-	a := agent.New(llmClient, agent.WithMaxSteps(10))
+	a := agent.NewAgent(llmClient, agent.WithMaxSteps(10))
 
 	r := &Runner{
 		agent:         a,
