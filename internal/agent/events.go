@@ -96,12 +96,11 @@ type TurnCompleteEvent struct {
 
 func (e TurnCompleteEvent) Type() EventType { return EventTypeTurnComplete }
 
-// ToolCallConfirmationDetails contains details for confirmation
-type ToolCallConfirmationDetails struct {
-	ToolName    string
-	Risk        RiskLevel
-	Description string
-	Arguments   map[string]interface{}
+// ToolCallConfirmationDetails is the base interface for all confirmation details
+type ToolCallConfirmationDetails interface {
+	Type() string
+	Title() string
+	GetRisk() RiskLevel
 }
 
 // EventHandler processes events emitted by the Turn

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 
@@ -94,11 +95,12 @@ func (h *TurnHandler) handleToolCallConfirmation(ctx context.Context, event Tool
 		},
 	}})
 
-	// Create approval request
+	// Create approval request with confirmation details
 	approvalReq := ApprovalRequest{
-		RequestID: event.Request.CallID,
-		ToolCalls: pendingCalls,
-		Risks:     map[string]RiskLevel{event.Request.CallID: event.Details.Risk},
+		RequestID:           event.Request.CallID,
+		ToolCalls:           pendingCalls,
+		Risks:               map[string]RiskLevel{event.Request.CallID: event.Details.GetRisk()},
+		ConfirmationDetails: event.Details,
 	}
 
 	// Request approval
@@ -196,4 +198,13 @@ func (h *TurnHandler) handleUserCancelled() error {
 // GetToolResponses returns all tool response messages
 func (h *TurnHandler) GetToolResponses() []openai.ChatCompletionMessage {
 	return h.toolResponses
+}
+
+// jsonString converts a map to JSON string
+func jsonString(args map[string]interface{}) string {
+	data, err := json.Marshal(args)
+	if err != nil {
+		return "{}"
+	}
+	return string(data)
 }

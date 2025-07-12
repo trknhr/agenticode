@@ -151,10 +151,11 @@ func (s *ToolCallScheduler) Clear() {
 
 // ApprovalRequest represents a request for user approval
 type ApprovalRequest struct {
-	RequestID   string
-	ToolCalls   []*PendingToolCall
-	Description string
-	Risks       map[string]RiskLevel
+	RequestID           string
+	ToolCalls           []*PendingToolCall
+	Description         string
+	Risks               map[string]RiskLevel
+	ConfirmationDetails ToolCallConfirmationDetails
 }
 
 // ApprovalResponse represents the user's approval decision

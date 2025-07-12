@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
+	"strings"
 
 	"github.com/sashabaranov/go-openai"
 	"github.com/trknhr/agenticode/internal/llm"
@@ -122,8 +124,8 @@ func (t *Turn) handleToolCall(toolCall openai.ToolCall) {
 
 	t.pendingCalls = append(t.pendingCalls, event)
 	
-	// Check if tool needs confirmation
-	tool, exists := t.tools[toolCall.Function.Name]
+	// Check if tool exists
+	_, exists := t.tools[toolCall.Function.Name]
 	if !exists {
 		t.eventStream.Emit(ErrorEvent{
 			Error:   fmt.Errorf("tool not found: %s", toolCall.Function.Name),
@@ -138,15 +140,14 @@ func (t *Turn) handleToolCall(toolCall openai.ToolCall) {
 	// Emit confirmation request if needed (based on risk level)
 	risk := AssessToolCallRisk(toolCall.Function.Name)
 	if risk != RiskLow {
-		t.eventStream.Emit(ToolCallConfirmationEvent{
-			Request: event,
-			Details: ToolCallConfirmationDetails{
-				ToolName:    toolCall.Function.Name,
-				Risk:        risk,
-				Description: tool.Description(),
-				Arguments:   args,
-			},
-		})
+		// Create confirmation details based on tool type
+		details := t.createConfirmationDetails(toolCall.Function.Name, args, risk)
+		if details != nil {
+			t.eventStream.Emit(ToolCallConfirmationEvent{
+				Request: event,
+				Details: details,
+			})
+		}
 	}
 }
 
@@ -173,4 +174,110 @@ func (t *Turn) AddToolResponse(callID string, toolName string, result *tools.Too
 // GetConversation returns the current conversation state
 func (t *Turn) GetConversation() []openai.ChatCompletionMessage {
 	return t.conversation
+}
+
+// createConfirmationDetails creates appropriate confirmation details based on tool type
+func (t *Turn) createConfirmationDetails(toolName string, args map[string]interface{}, risk RiskLevel) ToolCallConfirmationDetails {
+	switch toolName {
+	case "write_file", "edit":
+		return t.createFileConfirmationDetails(toolName, args, risk)
+	case "run_shell":
+		return t.createExecConfirmationDetails(toolName, args, risk)
+	default:
+		// For other tools, create basic info confirmation
+		return &ToolInfoConfirmationDetails{
+			ToolName:    toolName,
+			Description: fmt.Sprintf("%s: %v", toolName, args),
+			Parameters:  args,
+			Risk:        risk,
+		}
+	}
+}
+
+// createFileConfirmationDetails creates confirmation details for file operations
+func (t *Turn) createFileConfirmationDetails(toolName string, args map[string]interface{}, risk RiskLevel) *ToolFileConfirmationDetails {
+	details := &ToolFileConfirmationDetails{
+		ToolName: toolName,
+		Risk:     risk,
+	}
+
+	// Extract file path
+	if toolName == "write_file" {
+		if path, ok := args["path"].(string); ok {
+			details.FilePath = path
+		}
+		if content, ok := args["content"].(string); ok {
+			details.NewContent = content
+		}
+		
+		// Check if file exists
+		if _, err := os.Stat(details.FilePath); err == nil {
+			// File exists, read current content
+			currentContent, err := os.ReadFile(details.FilePath)
+			if err == nil {
+				details.OriginalContent = string(currentContent)
+				details.IsNewFile = false
+				
+				// Generate diff
+				diffGen := NewDiffGenerator()
+				details.FileDiff = diffGen.GenerateColoredDiff(details.OriginalContent, details.NewContent, details.FilePath)
+			}
+		} else {
+			// New file
+			details.IsNewFile = true
+		}
+	} else if toolName == "edit" {
+		if path, ok := args["file_path"].(string); ok {
+			details.FilePath = path
+		}
+		
+		// Read current file content
+		currentContent, err := os.ReadFile(details.FilePath)
+		if err != nil {
+			return nil // Can't edit non-existent file
+		}
+		
+		details.OriginalContent = string(currentContent)
+		details.IsNewFile = false
+		
+		// Calculate new content
+		oldString, _ := args["old_string"].(string)
+		newString, _ := args["new_string"].(string)
+		replaceAll, _ := args["replace_all"].(bool)
+		
+		if replaceAll {
+			details.NewContent = strings.ReplaceAll(details.OriginalContent, oldString, newString)
+		} else {
+			details.NewContent = strings.Replace(details.OriginalContent, oldString, newString, 1)
+		}
+		
+		// Generate diff
+		diffGen := NewDiffGenerator()
+		details.FileDiff = diffGen.GenerateColoredDiff(details.OriginalContent, details.NewContent, details.FilePath)
+	}
+	
+	return details
+}
+
+// createExecConfirmationDetails creates confirmation details for command execution
+func (t *Turn) createExecConfirmationDetails(toolName string, args map[string]interface{}, risk RiskLevel) *ToolExecConfirmationDetails {
+	details := &ToolExecConfirmationDetails{
+		ToolName: toolName,
+		Risk:     risk,
+	}
+	
+	if cmd, ok := args["command"].(string); ok {
+		details.Command = cmd
+	}
+	
+	if wd, ok := args["working_directory"].(string); ok {
+		details.WorkingDir = wd
+	} else {
+		// Get current working directory as default
+		if cwd, err := os.Getwd(); err == nil {
+			details.WorkingDir = cwd
+		}
+	}
+	
+	return details
 }

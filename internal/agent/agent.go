@@ -328,11 +328,6 @@ func (a *Agent) executeToolCall(toolCall openai.ToolCall, dryrun bool) Execution
 	return step
 }
 
-func jsonString(v interface{}) string {
-	b, _ := json.Marshal(v)
-	return string(b)
-}
-
 // filterConversationForLLM removes tool messages that don't have a preceding message with tool_calls
 func filterConversationForLLM(messages []openai.ChatCompletionMessage) []openai.ChatCompletionMessage {
 	filtered := make([]openai.ChatCompletionMessage, 0, len(messages))

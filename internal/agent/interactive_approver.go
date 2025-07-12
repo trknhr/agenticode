@@ -88,17 +88,67 @@ func (ia *InteractiveApprover) RequestApproval(ctx context.Context, request Appr
 		
 		fmt.Printf("\n%d. %s %s - %s\n", i+1, GetRiskIcon(risk), toolName, GetRiskDescription(risk))
 		
-		// Parse and display arguments
-		var args map[string]interface{}
-		if err := json.Unmarshal([]byte(call.ToolCall.Function.Arguments), &args); err == nil {
-			fmt.Println("   Arguments:")
-			for key, value := range args {
-				// Format the value nicely
-				valueStr := fmt.Sprintf("%v", value)
-				if len(valueStr) > 100 {
-					valueStr = valueStr[:97] + "..."
+		// Check if we have confirmation details for file operations
+		if request.ConfirmationDetails != nil {
+			if fileDetails, ok := request.ConfirmationDetails.(*ToolFileConfirmationDetails); ok {
+				fmt.Printf("   %s\n", fileDetails.Title())
+				
+				// Show file diff preview for modifications
+				if !fileDetails.IsNewFile && fileDetails.FileDiff != "" {
+					fmt.Println("   Preview of changes:")
+					// Show first few lines of the diff
+					diffLines := strings.Split(fileDetails.FileDiff, "\n")
+					maxLines := 10
+					for j, line := range diffLines {
+						if j >= maxLines && j < len(diffLines)-3 {
+							if j == maxLines {
+								fmt.Printf("   ... (%d more lines) ...\n", len(diffLines)-maxLines-3)
+							}
+							continue
+						}
+						if j >= len(diffLines)-3 || j < maxLines {
+							fmt.Printf("   %s\n", line)
+						}
+					}
+				} else if fileDetails.IsNewFile {
+					// For new files, show first few lines
+					contentLines := strings.Split(fileDetails.NewContent, "\n")
+					fmt.Printf("   New file content preview (%d lines):\n", len(contentLines))
+					for j := 0; j < 5 && j < len(contentLines); j++ {
+						fmt.Printf("   %s\n", contentLines[j])
+					}
+					if len(contentLines) > 5 {
+						fmt.Printf("   ... (%d more lines) ...\n", len(contentLines)-5)
+					}
 				}
-				fmt.Printf("   - %s: %s\n", key, valueStr)
+			} else {
+				// For non-file operations, show arguments as before
+				var args map[string]interface{}
+				if err := json.Unmarshal([]byte(call.ToolCall.Function.Arguments), &args); err == nil {
+					fmt.Println("   Arguments:")
+					for key, value := range args {
+						// Format the value nicely
+						valueStr := fmt.Sprintf("%v", value)
+						if len(valueStr) > 100 {
+							valueStr = valueStr[:97] + "..."
+						}
+						fmt.Printf("   - %s: %s\n", key, valueStr)
+					}
+				}
+			}
+		} else {
+			// Fallback to showing arguments
+			var args map[string]interface{}
+			if err := json.Unmarshal([]byte(call.ToolCall.Function.Arguments), &args); err == nil {
+				fmt.Println("   Arguments:")
+				for key, value := range args {
+					// Format the value nicely
+					valueStr := fmt.Sprintf("%v", value)
+					if len(valueStr) > 100 {
+						valueStr = valueStr[:97] + "..."
+					}
+					fmt.Printf("   - %s: %s\n", key, valueStr)
+				}
 			}
 		}
 	}
@@ -222,17 +272,55 @@ func (ia *InteractiveApprover) showDetailedInfo(request ApprovalRequest) {
 		fmt.Printf("   Tool Call ID: %s\n", call.ID)
 		fmt.Printf("   Created At: %s\n", call.CreatedAt.Format("15:04:05"))
 		
-		// Parse and display full arguments
-		var args map[string]interface{}
-		if err := json.Unmarshal([]byte(call.ToolCall.Function.Arguments), &args); err == nil {
-			fmt.Println("   Full Arguments:")
-			for key, value := range args {
-				fmt.Printf("   - %s:\n", key)
-				// Pretty print the value
-				if valueBytes, err := json.MarshalIndent(value, "     ", "  "); err == nil {
-					fmt.Printf("     %s\n", string(valueBytes))
+		// Check if we have file confirmation details
+		if request.ConfirmationDetails != nil {
+			if fileDetails, ok := request.ConfirmationDetails.(*ToolFileConfirmationDetails); ok {
+				fmt.Printf("   %s\n", fileDetails.Title())
+				fmt.Printf("   File Path: %s\n", fileDetails.FilePath)
+				
+				if fileDetails.IsNewFile {
+					fmt.Println("\n   Full new file content:")
+					fmt.Println(strings.Repeat("-", 50))
+					fmt.Println(fileDetails.NewContent)
+					fmt.Println(strings.Repeat("-", 50))
 				} else {
-					fmt.Printf("     %v\n", value)
+					fmt.Println("\n   Full diff:")
+					fmt.Println(strings.Repeat("-", 50))
+					fmt.Println(fileDetails.FileDiff)
+					fmt.Println(strings.Repeat("-", 50))
+				}
+			} else if execDetails, ok := request.ConfirmationDetails.(*ToolExecConfirmationDetails); ok {
+				fmt.Printf("   Command: %s\n", execDetails.Command)
+				fmt.Printf("   Working Directory: %s\n", execDetails.WorkingDir)
+			} else {
+				// For other tools, show arguments
+				var args map[string]interface{}
+				if err := json.Unmarshal([]byte(call.ToolCall.Function.Arguments), &args); err == nil {
+					fmt.Println("   Full Arguments:")
+					for key, value := range args {
+						fmt.Printf("   - %s:\n", key)
+						// Pretty print the value
+						if valueBytes, err := json.MarshalIndent(value, "     ", "  "); err == nil {
+							fmt.Printf("     %s\n", string(valueBytes))
+						} else {
+							fmt.Printf("     %v\n", value)
+						}
+					}
+				}
+			}
+		} else {
+			// Fallback to arguments
+			var args map[string]interface{}
+			if err := json.Unmarshal([]byte(call.ToolCall.Function.Arguments), &args); err == nil {
+				fmt.Println("   Full Arguments:")
+				for key, value := range args {
+					fmt.Printf("   - %s:\n", key)
+					// Pretty print the value
+					if valueBytes, err := json.MarshalIndent(value, "     ", "  "); err == nil {
+						fmt.Printf("     %s\n", string(valueBytes))
+					} else {
+						fmt.Printf("     %v\n", value)
+					}
 				}
 			}
 		}
