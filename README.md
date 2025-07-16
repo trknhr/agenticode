@@ -80,6 +80,8 @@ approval:
     - "grep"
     - "glob"
     - "read_many_files"
+    - "todo_write"
+    - "todo_read"
 ```
 
 ## Commands

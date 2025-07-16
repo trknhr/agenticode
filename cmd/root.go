@@ -12,9 +12,13 @@ import (
 	"github.com/spf13/viper"
 	"github.com/trknhr/agenticode/internal/agent"
 	"github.com/trknhr/agenticode/internal/llm"
+	"github.com/trknhr/agenticode/internal/tools"
 )
 
-var cfgFile string
+var (
+	cfgFile   string
+	debugMode bool
+)
 
 var rootCmd = &cobra.Command{
 	Use:   "agenticode",
@@ -40,6 +44,7 @@ func init() {
 	cobra.OnInitialize(initConfig)
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.agenticode.yaml)")
+	rootCmd.PersistentFlags().BoolVar(&debugMode, "debug", false, "Enable debug mode (pause before each LLM call)")
 	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
 
@@ -87,15 +92,26 @@ func runInteractiveMode(cmd *cobra.Command, args []string) error {
 
 	// Create interactive approver with auto-approval for safe tools
 	approver := agent.NewInteractiveApprover()
-	approver.SetAutoApprove([]string{"read_file", "read", "list_files", "grep", "glob", "read_many_files"})
+	approver.SetAutoApprove([]string{"read_file", "read", "list_files", "grep", "glob", "read_many_files", "todo_write", "todo_read"})
+	
+	// Build agent options
+	opts := []agent.Option{
+		agent.WithMaxSteps(maxSteps),
+		agent.WithApprover(approver),
+	}
+	
+	if debugMode {
+		opts = append(opts, agent.WithDebugger(agent.NewInteractiveDebugger()))
+	}
 
-	agentInstance := agent.NewAgent(client, agent.WithMaxSteps(maxSteps), agent.WithApprover(approver))
+	agentInstance := agent.NewAgent(client, opts...)
 
 	// Start interactive session
 	fmt.Println("AgentiCode Interactive Mode")
 	fmt.Println("Type 'exit' or 'quit' to end the session")
 	fmt.Println("Type 'clear' to clear the conversation history")
 	fmt.Println("Type 'history' to view conversation history")
+	fmt.Println("Type 'todos' to view the todo store")
 	fmt.Println("---")
 
 	scanner := bufio.NewScanner(os.Stdin)
@@ -160,6 +176,32 @@ func runInteractiveMode(cmd *cobra.Command, args []string) error {
 				fmt.Println("No conversation history yet.")
 			}
 			fmt.Println("\n--- End of History ---")
+			continue
+		case "todos":
+			todos := tools.GlobalTodoStore.ReadAll()
+			fmt.Println("\n--- Todo Store ---")
+			if len(todos) == 0 {
+				fmt.Println("No todos found.")
+			} else {
+				for _, todo := range todos {
+					// Format state for display
+					stateIcon := "⚪"
+					switch todo.State {
+					case tools.TodoPending:
+						stateIcon = "⚪"
+					case tools.TodoInProgress:
+						stateIcon = "🔵"
+					case tools.TodoCompleted:
+						stateIcon = "✅"
+					}
+					
+					fmt.Printf("\n%s [%s] %s\n", stateIcon, todo.ID[:8], todo.Title)
+					fmt.Printf("   State: %s\n", todo.State)
+					fmt.Printf("   Created: %s\n", todo.CreatedAt.Format("2006-01-02 15:04:05"))
+					fmt.Printf("   Updated: %s\n", todo.UpdatedAt.Format("2006-01-02 15:04:05"))
+				}
+			}
+			fmt.Println("\n--- End of Todos ---")
 			continue
 		}
 

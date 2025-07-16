@@ -361,5 +361,7 @@ func GetDefaultTools() []Tool {
 		&EditTool{},
 		&ReadManyFilesTool{},
 		&ApplyPatchTool{},
+		&TodoWriteTool{},
+		&TodoReadTool{},
 	}
 }

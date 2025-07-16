@@ -185,7 +185,7 @@ type ToolApprover interface {
 // AssessToolCallRisk evaluates the risk level of a tool call
 func AssessToolCallRisk(toolName string) RiskLevel {
 	switch toolName {
-	case "read_file", "read", "list_files", "grep", "glob", "read_many_files":
+	case "read_file", "read", "list_files", "grep", "glob", "read_many_files", "todo_write", "todo_read":
 		return RiskLow
 	case "write_file", "edit", "apply_patch":
 		return RiskMedium

@@ -18,6 +18,7 @@ type Agent struct {
 	tools     map[string]tools.Tool
 	maxSteps  int
 	approver  ToolApprover
+	debugger  Debugger
 }
 
 // NewAgentV2 creates a new event-driven agent
@@ -41,6 +42,11 @@ func NewAgent(llmClient llm.Client, opts ...Option) *Agent {
 	// Set default approver if not provided
 	if a.approver == nil {
 		a.approver = NewInteractiveApprover()
+	}
+	
+	// Set default debugger if not provided
+	if a.debugger == nil {
+		a.debugger = &NoOpDebugger{}
 	}
 
 	return a
@@ -75,6 +81,12 @@ func WithTools(tools []tools.Tool) Option {
 func WithApprover(approver ToolApprover) Option {
 	return func(a *Agent) {
 		a.approver = approver
+	}
+}
+
+func WithDebugger(debugger Debugger) Option {
+	return func(a *Agent) {
+		a.debugger = debugger
 	}
 }
 
@@ -114,8 +126,17 @@ func (a *Agent) ExecuteWithHistory(ctx context.Context, conversation []openai.Ch
 	for i := 0; i < a.maxSteps; i++ {
 		log.Printf("Starting turn %d/%d", i+1, a.maxSteps)
 
+		// 繰り返し検出
+		if a.detectRepetitiveActions(result.Steps) {
+			log.Println("Detected repetitive actions, adding guidance")
+			conversation = append(conversation, openai.ChatCompletionMessage{
+				Role:    "system",
+				Content: "You seem to be repeating the same actions. Please review the previous results and try a different approach.",
+			})
+		}
+
 		// Create a new turn
-		turn := NewTurn(a.llmClient, a.tools, conversation)
+		turn := NewTurn(a.llmClient, a.tools, conversation, a.debugger)
 
 		// Handle the turn
 		if err := handler.HandleTurn(ctx, turn); err != nil {
@@ -126,9 +147,24 @@ func (a *Agent) ExecuteWithHistory(ctx context.Context, conversation []openai.Ch
 
 		// Update conversation from turn (includes assistant response)
 		conversation = turn.GetConversation()
+		
+		// Log assistant message with tool calls
+		if len(conversation) > 0 {
+			lastMsg := conversation[len(conversation)-1]
+			if lastMsg.Role == "assistant" && len(lastMsg.ToolCalls) > 0 {
+				log.Printf("Assistant made %d tool calls:", len(lastMsg.ToolCalls))
+				for i, tc := range lastMsg.ToolCalls {
+					log.Printf("  Tool call %d: ID=%s, Name=%s", i, tc.ID, tc.Function.Name)
+				}
+			}
+		}
 
 		// Add tool responses to conversation
 		toolResponses := handler.GetToolResponses()
+		log.Printf("Got %d tool responses from handler", len(toolResponses))
+		for i, resp := range toolResponses {
+			log.Printf("Tool response %d: Name=%s, CallID=%s", i, resp.Name, resp.ToolCallID)
+		}
 		conversation = append(conversation, toolResponses...)
 
 		// Check if there were any pending calls
@@ -243,6 +279,10 @@ type FunctionCall struct {
 }
 
 func (a *Agent) callLLM(ctx context.Context, messages []openai.ChatCompletionMessage) (*LLMResponse, error) {
+	if a.debugger != nil && !a.debugger.ShouldContinue(messages) {
+		return nil, fmt.Errorf("LLM call cancelled by debugger")
+	}
+
 	// Convert messages to the format expected by LLM client
 	prompt := ""
 	for i, msg := range messages {

@@ -68,14 +68,23 @@ Examples:
 
 		// Create interactive approver with auto-approval for safe tools
 		approver := agent.NewInteractiveApprover()
-		approver.SetAutoApprove([]string{"read_file", "read", "list_files", "grep", "glob", "read_many_files"})
+		approver.SetAutoApprove([]string{"read_file", "read", "list_files", "grep", "glob", "read_many_files", "todo_write", "todo_read"})
 
-		// Create agent with tools using the new event-driven architecture
-		codeAgent := agent.NewAgent(llmClient,
+		// Build agent options
+		opts := []agent.Option{
 			agent.WithTools(tools.GetDefaultTools()),
 			agent.WithMaxSteps(10),
 			agent.WithApprover(approver),
-		)
+		}
+		
+		// Check if debug mode is enabled via parent command flag
+		if debugFlag, _ := cmd.Root().PersistentFlags().GetBool("debug"); debugFlag {
+			opts = append(opts, agent.WithDebugger(agent.NewInteractiveDebugger()))
+			fmt.Println("🐛 Debug mode enabled")
+		}
+
+		// Create agent with tools using the new event-driven architecture
+		codeAgent := agent.NewAgent(llmClient, opts...)
 
 		// Execute the task
 		ctx := context.Background()

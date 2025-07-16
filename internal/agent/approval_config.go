@@ -4,19 +4,19 @@ package agent
 type ApprovalConfig struct {
 	// Mode can be "interactive", "auto", or "policy"
 	Mode string `yaml:"mode" json:"mode"`
-	
+
 	// BatchMode can be "all", "by_type", or "individual"
 	BatchMode string `yaml:"batch_mode" json:"batch_mode"`
-	
+
 	// AutoApprove lists tool names that should be automatically approved
 	AutoApprove []string `yaml:"auto_approve" json:"auto_approve"`
-	
+
 	// RequireApproval lists tool names that always require approval
 	RequireApproval []string `yaml:"require_approval" json:"require_approval"`
-	
+
 	// DefaultApprove determines the default action when no specific rule applies
 	DefaultApprove bool `yaml:"default_approve" json:"default_approve"`
-	
+
 	// TimeoutSeconds is the timeout for approval requests
 	TimeoutSeconds int `yaml:"timeout" json:"timeout"`
 }
@@ -31,8 +31,10 @@ func DefaultApprovalConfig() *ApprovalConfig {
 			"read",
 			"list_files",
 			"grep",
-			"glob", 
+			"glob",
 			"read_many_files",
+			"todo_write",
+			"todo_read",
 		},
 		RequireApproval: []string{
 			"run_shell",

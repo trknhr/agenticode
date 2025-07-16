@@ -20,16 +20,18 @@ type Turn struct {
 	conversation []openai.ChatCompletionMessage
 	pendingCalls []ToolCallRequestEvent
 	eventStream  *EventStream
+	debugger     Debugger
 }
 
 // NewTurn creates a new Turn instance
-func NewTurn(llmClient llm.Client, availableTools map[string]tools.Tool, conversation []openai.ChatCompletionMessage) *Turn {
+func NewTurn(llmClient llm.Client, availableTools map[string]tools.Tool, conversation []openai.ChatCompletionMessage, debugger Debugger) *Turn {
 	return &Turn{
 		llmClient:    llmClient,
 		tools:        availableTools,
 		conversation: conversation,
 		pendingCalls: []ToolCallRequestEvent{},
 		eventStream:  NewEventStream(),
+		debugger:     debugger,
 	}
 }
 
@@ -78,6 +80,11 @@ func (t *Turn) callLLM(ctx context.Context) (*LLMResponse, error) {
 	// Filter conversation for LLM
 	filteredConversation := filterConversationForLLM(t.conversation)
 	
+	// Check with debugger before making LLM call
+	if t.debugger != nil && !t.debugger.ShouldContinue(filteredConversation) {
+		return nil, fmt.Errorf("LLM call cancelled by debugger")
+	}
+	
 	log.Printf("Calling LLM with %d messages in conversation", len(filteredConversation))
 	resp, err := t.llmClient.Generate(ctx, filteredConversation)
 	if err != nil {
@@ -103,13 +110,16 @@ func (t *Turn) handleToolCall(toolCall openai.ToolCall) {
 	if callID == "" {
 		callID = fmt.Sprintf("%s-%d", toolCall.Function.Name, len(t.pendingCalls))
 	}
+	
+	// Log tool call for debugging
+	log.Printf("Processing tool call: ID=%s, Name=%s", callID, toolCall.Function.Name)
 
 	// Parse arguments
 	var args map[string]interface{}
 	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
 		t.eventStream.Emit(ErrorEvent{
 			Error:   err,
-			Message: fmt.Sprintf("Failed to parse tool arguments: %v", err),
+			Message: fmt.Sprintf("Failed to parse tool arguments for %s: %v", toolCall.Function.Name, err),
 		})
 		return
 	}

@@ -138,10 +138,11 @@ func (h *TurnHandler) handleToolCallConfirmation(ctx context.Context, event Tool
 func (h *TurnHandler) executeToolCall(_ context.Context, event ToolCallRequestEvent) error {
 	tool, exists := h.tools[event.Name]
 	if !exists {
+		log.Printf("ERROR: Tool not found: %s (CallID: %s)", event.Name, event.CallID)
 		return fmt.Errorf("tool not found: %s", event.Name)
 	}
 
-	log.Printf("Executing tool: %s", event.Name)
+	log.Printf("Executing tool: %s (CallID: %s)", event.Name, event.CallID)
 
 	// Execute the tool
 	result, err := tool.Execute(event.Args)
@@ -174,6 +175,7 @@ func (h *TurnHandler) executeToolCall(_ context.Context, event ToolCallRequestEv
 
 	// Store the tool response
 	h.toolResponses = append(h.toolResponses, toolResponse)
+	log.Printf("Added tool response for %s (CallID: %s), total responses: %d", event.Name, event.CallID, len(h.toolResponses))
 
 	// Mark as executed in scheduler
 	h.scheduler.MarkExecuted(event.CallID, result, err)

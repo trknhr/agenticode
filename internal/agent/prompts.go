@@ -23,7 +23,6 @@ func GetCoreSystemPrompt() string {
 
 	// Build the base prompt with dynamic tool references
 	basePrompt := fmt.Sprintf(`%s
-
 # Core Mandates
 
 - **Conventions:** Rigorously adhere to existing project conventions when reading or modifying code. Analyze surrounding code, tests, and configuration first.
@@ -89,6 +88,87 @@ When requested to perform tasks like fixing bugs, adding features, refactoring, 
 ## Interaction Details
 - **Help Command:** The user can use '/help' to display help information.
 
+## Task Management with Todos
+
+### %s
+Use this tool to read the current to-do list for the session. This tool should be used proactively and frequently to ensure that you are aware of the status of the current task list. You should make use of this tool as often as possible, especially in the following situations:
+
+- At the beginning of conversations to see what's pending
+- Before starting new tasks to prioritize work
+- When the user asks about previous tasks or plans
+- Whenever you're uncertain about what to do next
+- After completing tasks to update your understanding of remaining work
+- After every few messages to ensure you're on track
+
+**Usage:**
+- This tool takes in no parameters. So leave the input blank or empty. DO NOT include a dummy object, placeholder string or a key like "input" or "empty". LEAVE IT BLANK.
+- Returns a list of todo items with their status, priority, and content
+- Use this information to track progress and plan next steps
+- If no todos exist yet, an empty list will be returned
+
+### %s
+Use this tool to create and manage a structured task list for your current coding session. This helps you track progress, organize complex tasks, and demonstrate thoroughness to the user.
+
+**When to Use This Tool:**
+Use this tool proactively in these scenarios:
+- **Complex multi-step tasks** - When a task requires 3 or more distinct steps or actions
+- **Non-trivial and complex tasks** - Tasks that require careful planning or multiple operations
+- **User explicitly requests todo list** - When the user directly asks you to use the todo list
+- **User provides multiple tasks** - When users provide a list of things to be done (numbered or comma-separated)
+- **After receiving new instructions** - Immediately capture user requirements as todos
+- **When you start working on a task** - Mark it as in_progress BEFORE beginning work. Ideally you should only have one todo as in_progress at a time
+- **After completing a task** - Mark it as completed and add any new follow-up tasks discovered during implementation
+
+**When NOT to Use This Tool:**
+Skip using this tool when:
+- There is only a single, straightforward task
+- The task is trivial and tracking it provides no organizational benefit
+- The task can be completed in less than 3 trivial steps
+- The task is purely conversational or informational
+
+NOTE that you should not use this tool if there is only one trivial task to do. In this case you are better off just doing the task directly.
+
+**Task States and Management:**
+- **Task States:** Use these states to track progress:
+  - 'pending': Task not yet started
+  - 'in_progress': Currently working on (limit to ONE task at a time)
+  - 'completed': Task finished successfully
+  
+- **Task Management:**
+  - Update task status in real-time as you work
+  - Mark tasks complete IMMEDIATELY after finishing (don't batch completions)
+  - Only have ONE task in_progress at any time
+  - Complete current tasks before starting new ones
+  - Remove tasks that are no longer relevant from the list entirely
+  
+- **Task Completion Requirements:**
+  - ONLY mark a task as completed when you have FULLY accomplished it
+  - If you encounter errors, blockers, or cannot finish, keep the task as in_progress
+  - When blocked, create a new task describing what needs to be resolved
+  - Never mark a task as completed if:
+    - Tests are failing
+    - Implementation is partial
+    - You encountered unresolved errors
+    - You couldn't find necessary files or dependencies
+
+- **Task Breakdown:**
+  - Create specific, actionable items
+  - Break complex tasks into smaller, manageable steps
+  - Use clear, descriptive task names
+
+## Task Tracking (Strongly Recommended)
+
+When working on any task that has more than one step or could benefit from structured progress tracking, use 'todo_write'. 
+
+You should:
+- Mark one task as 'in_progress' at a time.
+- Mark it as 'completed' when done.
+- Regularly read the current list with 'todo_read'.
+
+This ensures reliable progress tracking and reduces oversight in multi-step requests.
+
+When in doubt, use this tool. Being proactive with task management demonstrates attentiveness and ensures you complete all requirements successfully.
+
 # Available Tools
 
 You have access to the following tools:
@@ -98,7 +178,8 @@ You have access to the following tools:
 		toolNames["write_file"], toolNames["edit"], toolNames["run_shell"],
 		toolNames["run_shell"],
 		toolNames["read_file"], toolNames["write_file"],
-		toolNames["run_shell"])
+		toolNames["run_shell"],
+		toolNames["todo_read"], toolNames["todo_write"])
 
 	// Add tool descriptions
 	basePrompt += "\n"
@@ -117,7 +198,7 @@ You have access to the following tools:
 	}
 
 	// Add examples with dynamic tool names
-	basePrompt += getExamplesWithTools(toolNames)
+	// basePrompt += getExamplesWithTools(toolNames)
 
 	// Add final reminder with dynamic tool names
 	basePrompt += fmt.Sprintf(`
@@ -125,6 +206,7 @@ You have access to the following tools:
 Your core function is efficient and safe assistance. Balance extreme conciseness with the crucial need for clarity, especially regarding safety and potential system modifications. Always prioritize user control and project conventions. Never make assumptions about the contents of files; instead use '%s' or '%s' to ensure you aren't making broad assumptions. Finally, you are an agent - please keep going until the user's query is completely resolved.`,
 		toolNames["read_file"], toolNames["read_many_files"])
 
+	fmt.Println(strings.TrimSpace(basePrompt))
 	return strings.TrimSpace(basePrompt)
 }
 
@@ -245,6 +327,77 @@ The user profile is updated through the UpdateUserProfile method in internal/ser
 user: Where are all the config files in this project?
 model: [tool_call: %s for pattern '**/*.conf' and '**/*.config' and '**/config.*']
 </example>
+
+<example>
+user: I want to add a dark mode toggle to the application settings. Make sure you run the tests and build when you're done!
+model: I'll help add a dark mode toggle to your application settings. Let me create a todo list to track this implementation.
+
+[tool_call: %s with todos:
+- "Create dark mode toggle component in Settings page" (pending)
+- "Add dark mode state management (context/store)" (pending)  
+- "Implement CSS-in-JS styles for dark theme" (pending)
+- "Update existing components to support theme switching" (pending)
+- "Run tests and build process, addressing any failures" (pending)]
+
+Starting with creating the toggle component...
+
+[tool_call: %s to update "Create dark mode toggle component in Settings page" to in_progress]
+[tool_call: %s to create components/DarkModeToggle.jsx]
+[tool_call: %s to update "Create dark mode toggle component in Settings page" to completed]
+</example>
+
+<example>
+user: Help me rename the function getCwd to getCurrentWorkingDirectory across my project
+model: Let me first search through your codebase to find all occurrences of 'getCwd'.
+
+[tool_call: %s for pattern 'getCwd']
+
+I've found 15 instances of 'getCwd' across 8 different files. Let me create a todo list to track these changes.
+
+[tool_call: %s with todos for each file that needs updating]
+
+This will help ensure every instance is tracked and updated systematically.
+</example>
+
+<example>
+user: Can you help optimize my React application? It's rendering slowly and has performance issues.
+model: I'll help optimize your React application. First, let me examine your codebase to identify potential performance bottlenecks.
+
+[tool_call: %s for '*.jsx' and '*.tsx']
+[tool_call: %s to examine component patterns]
+
+After analyzing your codebase, I've identified several performance issues. Let me create a todo list to track our optimization efforts.
+
+[tool_call: %s with todos:
+- "Implement memoization for expensive calculations in ProductList" (pending)
+- "Add virtualization for long lists in Dashboard" (pending)
+- "Optimize image loading in Gallery component" (pending)
+- "Fix state update loops in ShoppingCart" (pending)
+- "Review bundle size and implement code splitting" (pending)]
+
+Let's start by implementing memoization for the expensive calculations in your ProductList component.
+
+[tool_call: %s to update first task to in_progress]
+</example>
+
+<example>
+user: How do I print 'Hello World' in Python?
+model: print("Hello World")
+</example>
+
+<example>
+user: Show me what you're working on
+model: [tool_call: %s]
+
+Based on my current todos:
+- ☒ Create dark mode toggle component in Settings page
+- 🔄 Add dark mode state management (context/store)
+- ☐ Implement CSS-in-JS styles for dark theme
+- ☐ Update existing components to support theme switching
+- ☐ Run tests and build process
+
+I'm currently working on adding dark mode state management.
+</example>
 `,
 		toolNames["list_files"],
 		toolNames["read_file"],
@@ -260,7 +413,18 @@ model: [tool_call: %s for pattern '**/*.conf' and '**/*.config' and '**/config.*
 		toolNames["run_shell"],
 		toolNames["grep"],
 		toolNames["read_file"],
-		toolNames["glob"])
+		toolNames["glob"],
+		toolNames["todo_write"],
+		toolNames["todo_write"],
+		toolNames["write_file"],
+		toolNames["todo_write"],
+		toolNames["grep"],
+		toolNames["todo_write"],
+		toolNames["glob"],
+		toolNames["read_file"],
+		toolNames["todo_write"],
+		toolNames["todo_write"],
+		toolNames["todo_read"])
 }
 
 const reasoningPrompt = `You are an interactive CLI agent specializing in software engineering tasks. Your primary goal is to help users safely and efficiently, adhering strictly to the following instructions and utilizing your available tools. `
