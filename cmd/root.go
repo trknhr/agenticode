@@ -18,6 +18,7 @@ import (
 var (
 	cfgFile   string
 	debugMode bool
+	promptStr string
 )
 
 var rootCmd = &cobra.Command{
@@ -29,7 +30,12 @@ var rootCmd = &cobra.Command{
 - Summarize repository contents
 
 This application is a tool to generate the needed files
-to quickly create React apps, propose changes, and more.`,
+to quickly create React apps, propose changes, and more.
+
+Usage:
+  agenticode                      # Interactive mode
+  agenticode -p "prompt"          # Execute a single prompt
+  agenticode code "description"   # Generate code from description`,
 	RunE: runInteractiveMode,
 }
 
@@ -45,6 +51,7 @@ func init() {
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.agenticode.yaml)")
 	rootCmd.PersistentFlags().BoolVar(&debugMode, "debug", false, "Enable debug mode (pause before each LLM call)")
+	rootCmd.Flags().StringVarP(&promptStr, "prompt", "p", "", "Provide a prompt to execute (non-interactive mode)")
 	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
 
@@ -98,6 +105,7 @@ func runInteractiveMode(cmd *cobra.Command, args []string) error {
 	opts := []agent.Option{
 		agent.WithMaxSteps(maxSteps),
 		agent.WithApprover(approver),
+		agent.WithTools(tools.GetDefaultTools()),
 	}
 	
 	if debugMode {
@@ -105,6 +113,42 @@ func runInteractiveMode(cmd *cobra.Command, args []string) error {
 	}
 
 	agentInstance := agent.NewAgent(client, opts...)
+
+	// Check if prompt was provided via command line
+	if promptStr != "" {
+		// Non-interactive mode: execute the prompt and exit
+		ctx := context.Background()
+		conversation := []openai.ChatCompletionMessage{
+			{
+				Role:    "system",
+				Content: agent.GetCoreSystemPrompt(),
+			},
+			{
+				Role:    "user",
+				Content: promptStr,
+			},
+		}
+		
+		response, _, err := agentInstance.ExecuteWithHistory(ctx, conversation, false)
+		if err != nil {
+			return fmt.Errorf("error executing prompt: %w", err)
+		}
+		
+		// Display the response
+		if response.Message != "" {
+			fmt.Printf("%s\n", response.Message)
+		}
+		
+		// Show any generated files summary
+		if len(response.GeneratedFiles) > 0 {
+			fmt.Printf("\n📝 Summary: Generated %d file(s)\n", len(response.GeneratedFiles))
+			for _, file := range response.GeneratedFiles {
+				fmt.Printf("  • %s\n", file.Path)
+			}
+		}
+		
+		return nil
+	}
 
 	// Start interactive session
 	fmt.Println("AgentiCode Interactive Mode")
