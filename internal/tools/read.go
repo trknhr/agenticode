@@ -7,6 +7,15 @@ import (
 )
 
 // ReadTool is a simple tool for reading file contents
+// Input parameters:
+// {
+//   // The absolute path to the file to read
+//   file_path: string;
+//   // The line number to start reading from. Only provide if the file is too large to read at once
+//   offset?: number;
+//   // The number of lines to read. Only provide if the file is too large to read at once.
+//   limit?: number;
+// }
 type ReadTool struct{}
 
 func NewReadTool() *ReadTool {
@@ -29,20 +38,28 @@ func (t *ReadTool) GetParameters() map[string]interface{} {
 	return map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
-			"absolute_path": map[string]interface{}{
+			"file_path": map[string]interface{}{
 				"type":        "string",
-				"description": "The absolute path to the file to read (e.g., '/home/user/project/file.txt'). Relative paths are not supported. You must provide an absolute path.",
+				"description": "The absolute path to the file to read",
+			},
+			"offset": map[string]interface{}{
+				"type":        "integer",
+				"description": "The line number to start reading from. Only provide if the file is too large to read at once",
+			},
+			"limit": map[string]interface{}{
+				"type":        "integer",
+				"description": "The number of lines to read. Only provide if the file is too large to read at once",
 			},
 		},
-		"required": []string{"path"},
+		"required": []string{"file_path"},
 	}
 }
 
 func (t *ReadTool) Execute(args map[string]interface{}) (*ToolResult, error) {
 	// Get the file path
-	path, ok := args["absolute_path"].(string)
+	path, ok := args["file_path"].(string)
 	if !ok {
-		return nil, fmt.Errorf("path is required")
+		return nil, fmt.Errorf("file_path is required")
 	}
 
 	// Convert to absolute path if needed

@@ -359,9 +359,24 @@ func GetDefaultTools() []Tool {
 		&GrepTool{},
 		&GlobTool{},
 		&EditTool{},
+		&MultiEditTool{},
 		&ReadManyFilesTool{},
 		&ApplyPatchTool{},
 		&TodoWriteTool{},
 		&TodoReadTool{},
 	}
+}
+
+// GetDefaultToolsWithLLM returns default tools including those that need LLM access
+func GetDefaultToolsWithLLM(llmClient interface{}) []Tool {
+	tools := GetDefaultTools()
+	
+	// Add tools that require LLM client
+	if llmClient != nil {
+		// We need to import llm package here, but to avoid circular dependency,
+		// we'll use interface{} and type assertion in web_fetch
+		tools = append(tools, NewWebFetchTool(llmClient))
+	}
+	
+	return tools
 }

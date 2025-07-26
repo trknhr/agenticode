@@ -2,11 +2,8 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
-	"regexp"
-	"strings"
 
 	"github.com/sashabaranov/go-openai"
 	"github.com/trknhr/agenticode/internal/llm"
@@ -33,8 +30,9 @@ func NewAgent(llmClient llm.Client, opts ...Option) *Agent {
 		opt(a)
 	}
 
-	// Initialize default tools
-	defaultTools := tools.GetDefaultTools()
+	// Initialize default tools with LLM client adapter
+	llmAdapter := NewLLMAdapter(llmClient)
+	defaultTools := tools.GetDefaultToolsWithLLM(llmAdapter)
 	for _, tool := range defaultTools {
 		a.tools[tool.Name()] = tool
 	}
@@ -43,7 +41,7 @@ func NewAgent(llmClient llm.Client, opts ...Option) *Agent {
 	if a.approver == nil {
 		a.approver = NewInteractiveApprover()
 	}
-	
+
 	// Set default debugger if not provided
 	if a.debugger == nil {
 		a.debugger = &NoOpDebugger{}
@@ -147,7 +145,7 @@ func (a *Agent) ExecuteWithHistory(ctx context.Context, conversation []openai.Ch
 
 		// Update conversation from turn (includes assistant response)
 		conversation = turn.GetConversation()
-		
+
 		// Log assistant message with tool calls
 		if len(conversation) > 0 {
 			lastMsg := conversation[len(conversation)-1]
@@ -219,41 +217,6 @@ func (a *Agent) ExecuteWithHistory(ctx context.Context, conversation []openai.Ch
 	return result, conversation, nil
 }
 
-// Execute runs a single task (for compatibility)
-func (a *Agent) Execute(ctx context.Context, task string, dryrun bool) (*ExecutionResult, error) {
-	conversation := []openai.ChatCompletionMessage{
-		{
-			Role:    "system",
-			Content: GetCoreSystemPrompt(),
-		},
-		{
-			Role:    "user",
-			Content: task,
-		},
-	}
-
-	result, _, err := a.ExecuteWithHistory(ctx, conversation, dryrun)
-	return result, err
-}
-
-func (a *Agent) ExecuteTask(ctx context.Context, task string, dryrun bool) (*ExecutionResult, error) {
-	log.Printf("Starting task execution: %s", task)
-
-	conversation := []openai.ChatCompletionMessage{
-		{
-			Role:    "system",
-			Content: GetCoreSystemPrompt(),
-		},
-		{
-			Role:    "user",
-			Content: task,
-		},
-	}
-
-	result, _, err := a.ExecuteWithHistory(ctx, conversation, dryrun)
-	return result, err
-}
-
 type LLMResponse struct {
 	Role      string
 	Content   string
@@ -278,133 +241,23 @@ type FunctionCall struct {
 	Arguments string `json:"arguments"`
 }
 
-func (a *Agent) callLLM(ctx context.Context, messages []openai.ChatCompletionMessage) (*LLMResponse, error) {
-	if a.debugger != nil && !a.debugger.ShouldContinue(messages) {
-		return nil, fmt.Errorf("LLM call cancelled by debugger")
-	}
-
-	// Convert messages to the format expected by LLM client
-	prompt := ""
-	for i, msg := range messages {
-		if i == 0 && msg.Role == "system" {
-			continue // Skip system message as it's handled by the LLM client
-		}
-		prompt += fmt.Sprintf("%s: %s\n\n", msg.Role, msg.Content)
-	}
-
-	// Call LLM to generate code
-	resp, err := a.llmClient.Generate(ctx, messages)
-	if err != nil {
-		return nil, err
-	}
-	msg := resp.Choices[0].Message
-
-	// Convert result to LLMResponse
-	return &LLMResponse{
-		Role:      msg.Role,
-		Content:   msg.Content,
-		ToolCalls: msg.ToolCalls,
-		Reasoning: extractReasoning(msg.Content),
-	}, nil
-}
-
-func extractReasoning(content string) string {
-	re := regexp.MustCompile(`(?s)Reasoning:\s*(.+?)(?:\n[A-Z][a-z]+:|$)`)
-	matches := re.FindStringSubmatch(content)
-	if len(matches) >= 2 {
-		return strings.TrimSpace(matches[1])
-	}
-	return ""
-}
-
-func mapToolCalls(calls []openai.ToolCall) []ToolCall {
-	var result []ToolCall
-	for _, c := range calls {
-		result = append(result, ToolCall{
-			ID:   c.ID,
-			Type: string(c.Type),
-			Function: FunctionCall{
-				Name:      c.Function.Name,
-				Arguments: c.Function.Arguments,
-			},
-		})
-	}
-	return result
-}
-
-func (a *Agent) executeToolCall(toolCall openai.ToolCall, dryrun bool) ExecutionStep {
-	step := ExecutionStep{
-		Action:   "tool_call",
-		ToolName: toolCall.Function.Name,
-	}
-
-	tool, exists := a.tools[toolCall.Function.Name]
-	if !exists {
-		step.Error = fmt.Errorf("tool not found: %s", toolCall.Function.Name)
-		return step
-	}
-
-	// Parse arguments
-	var args map[string]interface{}
-	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
-		step.Error = fmt.Errorf("failed to parse arguments: %w", err)
-		return step
-	}
-	step.ToolArgs = args
-
-	result, err := tool.Execute(args)
-	if err != nil {
-		step.Error = err
-		step.Result = nil
-	} else {
-		step.Result = result
-		step.Error = result.Error
-	}
-
-	if err != nil {
-		log.Printf("Tool execution failed: %s - %v", toolCall.Function.Name, err)
-	}
-
-	return step
-}
-
 // filterConversationForLLM removes tool messages that don't have a preceding message with tool_calls
 func filterConversationForLLM(messages []openai.ChatCompletionMessage) []openai.ChatCompletionMessage {
-	filtered := make([]openai.ChatCompletionMessage, 0, len(messages))
+	// filtered := make([]openai.ChatCompletionMessage, 0, len(messages))
 
-	for i, msg := range messages {
-		if msg.Role == "tool" {
-			// Check if previous message has tool_calls
-			if i > 0 && len(messages[i-1].ToolCalls) > 0 {
-				filtered = append(filtered, msg)
-			}
-			// Skip orphaned tool messages
-		} else {
-			filtered = append(filtered, msg)
-		}
-	}
+	// for i, msg := range messages {
+	// 	if msg.Role == "tool" {
+	// 		// Check if previous message has tool_calls
+	// 		if i > 0 && len(messages[i-1].ToolCalls) > 0 {
+	// 			filtered = append(filtered, msg)
+	// 		}
+	// 		// Skip orphaned tool messages
+	// 	} else {
+	// 		filtered = append(filtered, msg)
+	// 	}
+	// }
 
-	return filtered
-}
-
-// GenerateCode generates code based on the prompt and returns files without writing them
-func (a *Agent) GenerateCode(ctx context.Context, prompt string, dryRun bool) (map[string]string, error) {
-	result, err := a.ExecuteTask(ctx, prompt, dryRun)
-	if err != nil {
-		return nil, err
-	}
-
-	if !result.Success {
-		return nil, fmt.Errorf("code generation failed: %s", result.Message)
-	}
-
-	// Collect generated files
-	files := make(map[string]string)
-	for _, file := range result.GeneratedFiles {
-		files[file.Path] = file.Content
-	}
-
-	return files, nil
+	return messages
 }
 
 func (a *Agent) detectRepetitiveActions(steps []ExecutionStep) bool {
