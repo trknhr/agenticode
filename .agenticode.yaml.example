@@ -1,22 +1,89 @@
 # agenticode configuration file example
 # Copy this to ~/.agenticode.yaml and update with your settings
 
-# OpenAI settings
+# Provider definitions - Configure multiple LLM providers
+providers:
+  # OpenAI provider
+  openai:
+    type: openai
+    base_url: https://api.openai.com/v1
+    api_key: $OPENAI_API_KEY  # Uses environment variable
+    models:
+      - id: gpt-4-turbo-preview
+        name: GPT-4 Turbo Preview
+        context_window: 128000
+        max_tokens: 4096
+      - id: gpt-3.5-turbo
+        name: GPT-3.5 Turbo
+        context_window: 16385
+        max_tokens: 4096
+  
+  # DeepSeek provider (OpenAI-compatible)
+  deepseek:
+    type: openai
+    base_url: https://api.deepseek.com/v1
+    api_key: $DEEPSEEK_API_KEY
+    models:
+      - id: deepseek-chat
+        name: DeepSeek V3
+        context_window: 64000
+        max_tokens: 5000
+  
+  # Groq provider (OpenAI-compatible)
+  groq:
+    type: openai
+    base_url: https://api.groq.com/openai/v1
+    api_key: $GROQ_API_KEY
+    models:
+      - id: llama3-8b-8192
+        name: Llama 3 8B
+        context_window: 8192
+        max_tokens: 8192
+      - id: mixtral-8x7b-32768
+        name: Mixtral 8x7B
+        context_window: 32768
+        max_tokens: 32768
+  
+  # Local LiteLLM proxy
+  local:
+    type: openai
+    base_url: http://127.0.0.1:4000
+    api_key: ""  # Not needed for local proxy
+    models:
+      - id: kimi-k2-instruct
+        name: Kimi K2 Instruct
+        context_window: 128000
+        max_tokens: 8192
+
+# Model selection - Define which models to use
+models:
+  # Default model for general use
+  default: 
+    provider: deepseek
+    model: deepseek-chat
+  
+  # Fast model for quick responses
+  fast:
+    provider: groq
+    model: llama3-8b-8192
+  
+  # Powerful model for complex tasks
+  powerful:
+    provider: openai
+    model: gpt-4-turbo-preview
+  
+  # Local model for offline use
+  local:
+    provider: local
+    model: kimi-k2-instruct
+
+# Legacy OpenAI configuration (for backwards compatibility)
+# Will be used if providers section is not defined
 openai:
-  api_key: "your-openai-api-key-here"  # Or set OPENAI_API_KEY environment variable
-  model: "gpt-4-turbo-preview"         # Optional: defaults to gpt-4-turbo-preview
-  eval_model: "gpt-3.5-turbo"         # Optional: model for evaluations, defaults to main model
+  api_key: $OPENAI_API_KEY
+  model: gpt-4-turbo-preview
 
 # General settings
 general:
   max_steps: 10                        # Maximum steps for agent execution
   confirm_before_write: true           # Ask for confirmation before writing files
-
-# Tool settings
-tools:
-  shell:
-    enabled: true
-    timeout: 30s                       # Command timeout
-  file:
-    enabled: true
-    max_file_size: 1048576            # 1MB max file size

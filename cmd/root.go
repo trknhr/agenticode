@@ -23,6 +23,7 @@ var (
 	allowedTools   string
 	permissionMode string
 	dangerousSkip  bool
+	modelSelection string
 )
 
 var rootCmd = &cobra.Command{
@@ -60,6 +61,7 @@ func init() {
 	rootCmd.Flags().StringVar(&allowedTools, "allowedTools", "", "Comma-separated list of allowed tools")
 	rootCmd.Flags().StringVar(&permissionMode, "permission-mode", "", "Permission mode: bypassPermissions")
 	rootCmd.Flags().BoolVar(&dangerousSkip, "dangerously-skip-permissions", false, "Skip all permission checks (use with caution)")
+	rootCmd.Flags().StringVarP(&modelSelection, "model", "m", "", "Model selection (e.g., 'default', 'fast', 'groq/llama3-8b')")
 	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
 
@@ -83,21 +85,50 @@ func initConfig() {
 }
 
 func runInteractiveMode(cmd *cobra.Command, args []string) error {
-	// Initialize OpenAI client
-	apiKey := viper.GetString("openai.api_key")
-	if apiKey == "" {
-		if apiKey = os.Getenv("OPENAI_API_KEY"); apiKey == "" {
-			return fmt.Errorf("OpenAI API key not found. Set OPENAI_API_KEY environment variable or add it to config file")
+	// Try to load providers configuration first
+	var client llm.Client
+	var err error
+
+	// Check if providers configuration exists
+	providersConfig := &llm.ProvidersConfig{
+		Providers: make(map[string]llm.ProviderConfig),
+		Models:    make(map[string]llm.ModelSelection),
+	}
+
+	// Load providers from viper
+	if !viper.IsSet("providers") {
+		return fmt.Errorf("failed to see Providers. add providers on config see .agenticode.yaml")
+	}
+
+	if err := viper.UnmarshalKey("providers", &providersConfig.Providers); err != nil {
+		return fmt.Errorf("failed to load providers configuration: %w", err)
+	}
+
+	// Load model selections
+	if viper.IsSet("models") {
+		if err := viper.UnmarshalKey("models", &providersConfig.Models); err != nil {
+			return fmt.Errorf("failed to load models configuration: %w", err)
 		}
 	}
 
-	model := viper.GetString("openai.model")
-	if model == "" {
-		model = "gpt-4.1"
+	// Determine which model to use
+	selectedModel := modelSelection
+	if selectedModel == "" {
+		// Try to use default model selection
+		selectedModel = "default"
 	}
 
-	// Create LLM client
-	client := llm.NewOpenAIClient(apiKey, model)
+	// Create client with multi-provider configuration
+	client, err = llm.NewClient(llm.Config{
+		ProvidersConfig: providersConfig,
+		ModelSelection:  selectedModel,
+	})
+
+	if err != nil {
+		// If specific model selection failed, try legacy configuration
+		fmt.Printf("Warning: Failed to use multi-provider configuration: %v\n", err)
+		fmt.Println("Falling back to legacy configuration...")
+	}
 
 	// Create agent
 	maxSteps := viper.GetInt("general.max_steps")
@@ -153,10 +184,21 @@ func runInteractiveMode(cmd *cobra.Command, args []string) error {
 
 	agentInstance := agent.NewAgent(client, opts...)
 
+	// Get model name for prompts
+	modelName := "gpt-4.1" // default
+	if pc, ok := client.(*llm.ProviderClient); ok {
+		modelName = pc.GetCurrentModel()
+	} else {
+		// Legacy client - try to get from config
+		if m := viper.GetString("openai.model"); m != "" {
+			modelName = m
+		}
+	}
+
 	conversation := []openai.ChatCompletionMessage{
 		{
 			Role:    "system",
-			Content: agent.GetSystemPrompt(model),
+			Content: agent.GetSystemPrompt(modelName),
 		},
 		{
 			Role:    "developer",
@@ -248,7 +290,11 @@ func runInteractiveMode(cmd *cobra.Command, args []string) error {
 			conversation = []openai.ChatCompletionMessage{
 				{
 					Role:    "system",
-					Content: agent.GetSystemPrompt(model),
+					Content: agent.GetSystemPrompt(modelName),
+				},
+				{
+					Role:    "developer",
+					Content: agent.GetDeveloperPrompt(),
 				},
 			}
 			fmt.Println("Conversation history cleared.")
