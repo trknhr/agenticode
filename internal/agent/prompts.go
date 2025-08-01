@@ -21,6 +21,9 @@ var systemPromptTemplate string
 //go:embed prompts/developer-prompt.md
 var developerPromptTemplate string
 
+//go:embed prompts/init.md
+var initPromptTemplate string
+
 // PromptData contains the data for template variables
 type PromptData struct {
 	WorkingDir       string
@@ -80,6 +83,10 @@ func GetSystemPrompt(modelName string) string {
 
 func GetDeveloperPrompt() string {
 	return developerPromptTemplate
+}
+
+func GetInitPrompt() string {
+	return initPromptTemplate
 }
 
 func isGitRepository() bool {

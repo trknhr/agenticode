@@ -306,6 +306,7 @@ func runInteractiveMode(cmd *cobra.Command, args []string) error {
 	fmt.Println("Type 'exit' or 'quit' to end the session")
 	fmt.Println("Type 'clear' to clear the conversation history")
 	fmt.Println("Type 'compact' to compress conversation history into a summary")
+	fmt.Println("Type 'init' to generate or update AGENTIC.md documentation")
 	fmt.Println("Type 'history' to view conversation history")
 	fmt.Println("Type 'todos' to view the todo store")
 	fmt.Println("---")
@@ -414,6 +415,73 @@ func runInteractiveMode(cmd *cobra.Command, args []string) error {
 				result.SummaryTokens,
 				result.CompressionRatio,
 				result.TokensSaved)
+			continue
+		case "init":
+			fmt.Println("\n🚀 Initializing AGENTIC.md generation...")
+			
+			// Check if AGENTIC.md already exists
+			agenticPath := "AGENTIC.md"
+			existingContent := ""
+			if _, err := os.Stat(agenticPath); err == nil {
+				fmt.Println("📄 Found existing AGENTIC.md, will analyze and suggest improvements...")
+				if content, err := os.ReadFile(agenticPath); err == nil {
+					existingContent = string(content)
+				}
+			} else {
+				fmt.Println("📝 Creating new AGENTIC.md for this codebase...")
+			}
+
+			// Get the init prompt
+			initPrompt := agent.GetInitPrompt()
+			
+			// If there's existing content, add it to the context
+			if existingContent != "" {
+				initPrompt = fmt.Sprintf("%s\n\n---\nExisting AGENTIC.md content:\n---\n%s", initPrompt, existingContent)
+			}
+
+			// Add the init prompt to conversation
+			conversation = append(conversation, openai.ChatCompletionMessage{
+				Role:    "user",
+				Content: initPrompt,
+			})
+
+			// Execute task with conversation history
+			ctx := context.Background()
+			response, updatedConversation, err := agentInstance.ExecuteWithHistory(ctx, conversation, false)
+			if err != nil {
+				fmt.Printf("❌ Error generating AGENTIC.md: %v\n", err)
+				// Remove the init prompt from conversation if it failed
+				conversation = conversation[:len(conversation)-1]
+				continue
+			}
+
+			// Update conversation
+			conversation = updatedConversation
+
+			// Display the response
+			if response.Message != "" {
+				fmt.Printf("\n%s\n", response.Message)
+			}
+
+			// Check if AGENTIC.md was generated
+			agenticGenerated := false
+			for _, file := range response.GeneratedFiles {
+				if file.Path == "AGENTIC.md" || file.Path == "./AGENTIC.md" {
+					agenticGenerated = true
+					fmt.Printf("\n✅ AGENTIC.md has been created/updated at: %s\n", file.Path)
+					break
+				}
+			}
+
+			if !agenticGenerated {
+				fmt.Println("\n⚠️  AGENTIC.md content was generated but not written to file.")
+				fmt.Println("This might be because:")
+				fmt.Println("1. File write requires approval (run with --bypass-permissions to auto-approve)")
+				fmt.Println("2. The agent needs explicit instruction to write the file")
+				fmt.Println("\nYou can ask the agent to 'write the AGENTIC.md file' to save it.")
+			} else {
+				fmt.Println("\n✅ AGENTIC.md generation complete!")
+			}
 			continue
 		case "history":
 			fmt.Println("\n--- Conversation History ---")
