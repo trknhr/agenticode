@@ -132,10 +132,10 @@ func (t *RunShellTool) Execute(args map[string]interface{}) (*ToolResult, error)
 	cmd.Stderr = &stderr
 
 	err := cmd.Run()
-	
+
 	stdoutStr := stdout.String()
 	stderrStr := stderr.String()
-	
+
 	// Build LLM content
 	llmContent := fmt.Sprintf("Executed: %s", command)
 	if stdoutStr != "" {
@@ -147,7 +147,7 @@ func (t *RunShellTool) Execute(args map[string]interface{}) (*ToolResult, error)
 	if err != nil {
 		llmContent += fmt.Sprintf("\nError: %v", err)
 	}
-	
+
 	// Build display content
 	var displayContent string
 	if err != nil {
@@ -287,7 +287,7 @@ func (t *ListFilesTool) Execute(args map[string]interface{}) (*ToolResult, error
 	var displayLines []string
 	dirCount := 0
 	fileCount := 0
-	
+
 	for _, entry := range entries {
 		name := entry.Name()
 		if entry.IsDir() {
@@ -307,7 +307,7 @@ func (t *ListFilesTool) Execute(args map[string]interface{}) (*ToolResult, error
 	}
 
 	llmContent := fmt.Sprintf("Directory listing of %s: %s", path, strings.Join(files, ", "))
-	displayContent := fmt.Sprintf("📂 **%s** (%d directories, %d files):\n```\n%s\n```", 
+	displayContent := fmt.Sprintf("📂 **%s** (%d directories, %d files):\n```\n%s\n```",
 		path, dirCount, fileCount, strings.Join(displayLines, "\n"))
 
 	return &ToolResult{
@@ -370,13 +370,13 @@ func GetDefaultTools() []Tool {
 // GetDefaultToolsWithLLM returns default tools including those that need LLM access
 func GetDefaultToolsWithLLM(llmClient interface{}) []Tool {
 	tools := GetDefaultTools()
-	
+
 	// Add tools that require LLM client
 	if llmClient != nil {
 		// We need to import llm package here, but to avoid circular dependency,
 		// we'll use interface{} and type assertion in web_fetch
 		tools = append(tools, NewWebFetchTool(llmClient))
 	}
-	
+
 	return tools
 }

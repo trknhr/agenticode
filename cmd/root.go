@@ -185,16 +185,12 @@ func runInteractiveMode(cmd *cobra.Command, args []string) error {
 	agentInstance := agent.NewAgent(client, opts...)
 
 	// Get model name for prompts
-	modelName := "gpt-4.1" // default
-	if pc, ok := client.(*llm.ProviderClient); ok {
-		modelName = pc.GetCurrentModel()
-	} else {
-		// Legacy client - try to get from config
-		if m := viper.GetString("openai.model"); m != "" {
-			modelName = m
-		}
+	pc, ok := client.(*llm.ProviderClient)
+	if !ok {
+		return fmt.Errorf("failed to load provider client")
 	}
 
+	modelName := pc.GetCurrentModel()
 	conversation := []openai.ChatCompletionMessage{
 		{
 			Role:    "system",

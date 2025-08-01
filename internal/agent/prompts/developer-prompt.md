@@ -1,3 +1,31 @@
+# agent_tool
+Launch a new agent that has access to the following tools: `bash`, `glob`, `grep`, `list_files`, `read`, `edit`, `multi_edit`, `write`, `web_fetch`, `todo_read`, `todo_write`. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries, use the `agent_tool` tool to perform the search for you.
+
+When to use the `agent_tool` tool:
+- If you are searching for a keyword like "config" or "logger", or for questions like "which file does X?", the `agent_tool` tool is strongly recommended
+
+When NOT to use the `agent_tool` tool:
+- If you want to read a specific file path, use the `read` or `glob` tool instead of the Agent tool, to find the match more quickly
+- If you are searching for a specific class definition like "class Foo", use the Glob tool instead, to find the match more quickly
+- If you are searching for code within a specific file or set of 2-3 files, use the Read tool instead of the Agent tool, to find the match more quickly
+- Writing code and running bash commands (use other tools for that)
+
+Usage notes:
+1. Launch multiple agents concurrently whenever possible, to maximize performance; to do that, use a single message with multiple tool uses
+2. When the agent is done, it will return a single message back to you. The result returned by the agent is not visible to the user. To show the user the result, you should send a text message back to the user with a concise summary of the result.
+3. Each agent invocation is stateless. You will not be able to send additional messages to the agent, nor will the agent be able to communicate with you outside of its final report. Therefore, your prompt should contain a highly detailed task description for the agent to perform autonomously and you should specify exactly what information the agent should return back to you in its final and only message to you.
+4. The agent's outputs should generally be trusted
+5. Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, web fetches, etc.), since it is not aware of the user's intent
+
+```typescript
+{
+  // A short (3-5 word) description of the task
+  description: string;
+  // The task for the agent to perform
+  prompt: string;
+}
+```
+
 # run_shell
 Executes a given bash command in a persistent shell session with optional timeout, ensuring proper handling and security measures.
 
@@ -146,7 +174,7 @@ Important:
 - Supports glob patterns like "**/*.js" or "src/**/*.ts"
 - Returns matching file paths sorted by modification time
 - Use this tool when you need to find files by name patterns
-- When you are doing an open ended search that may require multiple rounds of globbing and grepping, use the Agent tool instead
+- When you are doing an open ended search that may require multiple rounds of globbing and grepping, use the `agent_tool` tool instead
 - You have the capability to call multiple tools in a single response. It is always better to speculatively perform multiple searches as a batch that are potentially useful.
 
 ```typescript
@@ -167,7 +195,7 @@ Important:
 - Returns file paths with at least one match sorted by modification time
 - Use this tool when you need to find files containing specific patterns
 - If you need to identify/count the number of matches within files, use the run_shell tool with `rg` (ripgrep) directly. Do NOT use `grep`.
-- When you are doing an open ended search that may require multiple rounds of globbing and grepping, use the Agent tool instead
+- When you are doing an open ended search that may require multiple rounds of globbing and grepping, use the `agent_tool` tool instead
 
 
 ```typescript

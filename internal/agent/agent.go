@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/sashabaranov/go-openai"
 	"github.com/trknhr/agenticode/internal/llm"
@@ -36,6 +37,11 @@ func NewAgent(llmClient llm.Client, opts ...Option) *Agent {
 	for _, tool := range defaultTools {
 		a.tools[tool.Name()] = tool
 	}
+
+	// Add the agent tool using the factory adapter
+	agentFactory := NewAgentFactoryAdapter()
+	agentTool := agentFactory.CreateAgentTool(llmClient)
+	a.tools[agentTool.Name()] = agentTool
 
 	// Set default approver if not provided
 	if a.approver == nil {
@@ -117,16 +123,34 @@ func (a *Agent) ExecuteWithHistory(ctx context.Context, conversation []openai.Ch
 		Steps:          []ExecutionStep{},
 	}
 
+	// Check if this is a sub-agent by looking for SUB-AGENT-CONTEXT in conversation
+	subAgentID := ""
+	for _, msg := range conversation {
+		if msg.Role == "system" && strings.Contains(msg.Content, "[SUB-AGENT-CONTEXT]") {
+			// Extract sub-agent ID from context
+			if idx := strings.Index(msg.Content, "sub-agent "); idx != -1 {
+				subAgentID = strings.TrimSpace(msg.Content[idx+10:])
+			}
+			break
+		}
+	}
+
+	// Create log prefix
+	logPrefix := ""
+	if subAgentID != "" {
+		logPrefix = fmt.Sprintf("[%s] ", subAgentID)
+	}
+
 	// Create handler
 	handler := NewTurnHandler(a.tools, a.approver)
 
 	// Main execution loop
 	for i := 0; i < a.maxSteps; i++ {
-		log.Printf("Starting turn %d/%d", i+1, a.maxSteps)
+		log.Printf("%sStarting turn %d/%d", logPrefix, i+1, a.maxSteps)
 
-		// 繰り返し検出
+		// detect repetitive
 		if a.detectRepetitiveActions(result.Steps) {
-			log.Println("Detected repetitive actions, adding guidance")
+			log.Printf("%sDetected repetitive actions, adding guidance", logPrefix)
 			conversation = append(conversation, openai.ChatCompletionMessage{
 				Role:    "system",
 				Content: "You seem to be repeating the same actions. Please review the previous results and try a different approach.",
@@ -150,18 +174,18 @@ func (a *Agent) ExecuteWithHistory(ctx context.Context, conversation []openai.Ch
 		if len(conversation) > 0 {
 			lastMsg := conversation[len(conversation)-1]
 			if lastMsg.Role == "assistant" && len(lastMsg.ToolCalls) > 0 {
-				log.Printf("Assistant made %d tool calls:", len(lastMsg.ToolCalls))
+				log.Printf("%sAssistant made %d tool calls:", logPrefix, len(lastMsg.ToolCalls))
 				for i, tc := range lastMsg.ToolCalls {
-					log.Printf("  Tool call %d: ID=%s, Name=%s", i, tc.ID, tc.Function.Name)
+					log.Printf("%s  Tool call %d: ID=%s, Name=%s", logPrefix, i, tc.ID, tc.Function.Name)
 				}
 			}
 		}
 
 		// Add tool responses to conversation
 		toolResponses := handler.GetToolResponses()
-		log.Printf("Got %d tool responses from handler", len(toolResponses))
+		log.Printf("%sGot %d tool responses from handler", logPrefix, len(toolResponses))
 		for i, resp := range toolResponses {
-			log.Printf("Tool response %d: Name=%s, CallID=%s", i, resp.Name, resp.ToolCallID)
+			log.Printf("%sTool response %d: Name=%s, CallID=%s", logPrefix, i, resp.Name, resp.ToolCallID)
 		}
 		conversation = append(conversation, toolResponses...)
 
@@ -169,7 +193,7 @@ func (a *Agent) ExecuteWithHistory(ctx context.Context, conversation []openai.Ch
 		pendingCalls := turn.GetPendingCalls()
 		if len(pendingCalls) == 0 {
 			// No tool calls means the agent is done
-			log.Println("No tool calls in this turn, task completed")
+			log.Printf("%sNo tool calls in this turn, task completed", logPrefix)
 			result.Success = true
 			// Extract final message from conversation
 			if len(conversation) > 0 {
@@ -209,7 +233,7 @@ func (a *Agent) ExecuteWithHistory(ctx context.Context, conversation []openai.Ch
 	}
 
 	if len(result.Steps) >= a.maxSteps {
-		log.Printf("WARNING: Maximum steps (%d) reached without completion", a.maxSteps)
+		log.Printf("%sWARNING: Maximum steps (%d) reached without completion", logPrefix, a.maxSteps)
 		result.Success = false
 		result.Message = "Maximum steps reached"
 	}
