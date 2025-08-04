@@ -7,16 +7,18 @@ import (
 	"strings"
 
 	"github.com/sashabaranov/go-openai"
+	"github.com/trknhr/agenticode/internal/hooks"
 	"github.com/trknhr/agenticode/internal/llm"
 	"github.com/trknhr/agenticode/internal/tools"
 )
 
 type Agent struct {
-	llmClient llm.Client
-	tools     map[string]tools.Tool
-	maxSteps  int
-	approver  ToolApprover
-	debugger  Debugger
+	llmClient   llm.Client
+	tools       map[string]tools.Tool
+	maxSteps    int
+	approver    ToolApprover
+	debugger    Debugger
+	hookManager *hooks.Manager
 }
 
 // NewAgentV2 creates a new event-driven agent
@@ -94,6 +96,13 @@ func WithDebugger(debugger Debugger) Option {
 	}
 }
 
+// WithHookManager sets the hook manager
+func WithHookManager(manager *hooks.Manager) Option {
+	return func(a *Agent) {
+		a.hookManager = manager
+	}
+}
+
 type ExecutionResult struct {
 	Success        bool
 	Message        string
@@ -143,6 +152,9 @@ func (a *Agent) ExecuteWithHistory(ctx context.Context, conversation []openai.Ch
 
 	// Create handler
 	handler := NewTurnHandler(a.tools, a.approver)
+	if a.hookManager != nil {
+		handler.SetHookManager(a.hookManager)
+	}
 
 	// Main execution loop
 	for i := 0; i < a.maxSteps; i++ {
@@ -236,6 +248,39 @@ func (a *Agent) ExecuteWithHistory(ctx context.Context, conversation []openai.Ch
 		log.Printf("%sWARNING: Maximum steps (%d) reached without completion", logPrefix, a.maxSteps)
 		result.Success = false
 		result.Message = "Maximum steps reached"
+	}
+
+	// Execute Stop or SubagentStop hooks
+	if a.hookManager != nil {
+		var hookEvent hooks.HookEvent
+		if subAgentID != "" {
+			hookEvent = hooks.SubagentStop
+		} else {
+			hookEvent = hooks.Stop
+		}
+
+		hookInput := hooks.HookInput{
+			StopHookActive: false, // TODO: track if we're in a stop hook already
+		}
+
+		outputs, err := a.hookManager.ExecuteHooks(ctx, hookEvent, hookInput)
+		if err != nil {
+			log.Printf("Stop hook error: %v", err)
+		}
+
+		// Check if any hook wants to continue
+		for _, output := range outputs {
+			if output.Decision == "block" && output.Reason != "" {
+				// Hook wants agent to continue
+				log.Printf("%sStop hook requests continuation: %s", logPrefix, output.Reason)
+				// Add system message with hook's reason
+				conversation = append(conversation, openai.ChatCompletionMessage{
+					Role:    "system",
+					Content: output.Reason,
+				})
+				// Could potentially continue execution here, but for now just log
+			}
+		}
 	}
 
 	return result, conversation, nil

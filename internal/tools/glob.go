@@ -55,7 +55,7 @@ func (t *GlobTool) Execute(args map[string]interface{}) (*ToolResult, error) {
 	}
 
 	var matches []string
-	
+
 	// If pattern contains directory separators, use filepath.Glob
 	if filepath.IsAbs(pattern) || filepath.Dir(pattern) != "." {
 		// Pattern includes path components
@@ -121,7 +121,7 @@ func (t *GlobTool) Execute(args map[string]interface{}) (*ToolResult, error) {
 	if len(sortedMatches) > 0 {
 		llmContent += fmt.Sprintf(": %s", strings.Join(sortedMatches, ", "))
 		if len(sortedMatches) > 10 {
-			llmContent = fmt.Sprintf("Found %d files matching pattern '%s' in %s: %s... and %d more", 
+			llmContent = fmt.Sprintf("Found %d files matching pattern '%s' in %s: %s... and %d more",
 				len(sortedMatches), pattern, path, strings.Join(sortedMatches[:10], ", "), len(sortedMatches)-10)
 		}
 	}

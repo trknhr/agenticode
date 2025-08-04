@@ -31,9 +31,9 @@ func (e ContentEvent) Type() EventType { return EventTypeContent }
 
 // ToolCallRequestEvent represents a request to execute a tool
 type ToolCallRequestEvent struct {
-	CallID           string
-	Name             string
-	Args             map[string]interface{}
+	CallID            string
+	Name              string
+	Args              map[string]interface{}
 	IsClientInitiated bool
 }
 

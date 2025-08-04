@@ -229,10 +229,10 @@ func TestWebFetchToolCacheCleanup(t *testing.T) {
 	// This test would need to run for 15+ minutes to fully test cleanup
 	// so we'll just verify the cleanup goroutine starts
 	tool := NewWebFetchTool(nil)
-	
+
 	// Add an entry to cache
 	tool.addToCache("test-url", "test-content")
-	
+
 	// Verify it's in cache
 	content, found := tool.getFromCache("test-url")
 	if !found {
@@ -241,7 +241,7 @@ func TestWebFetchToolCacheCleanup(t *testing.T) {
 	if content != "test-content" {
 		t.Errorf("Expected cached content to be 'test-content', got: %s", content)
 	}
-	
+
 	// Can't easily test the cleanup without waiting 15 minutes
 	// Just verify the tool was created successfully
 	if tool == nil {

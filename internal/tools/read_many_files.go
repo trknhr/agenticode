@@ -115,13 +115,13 @@ func (t *ReadManyFilesTool) Execute(args map[string]interface{}) (*ToolResult, e
 		llmContent.WriteString(fmt.Sprintf(" (%d errors)", len(errors)))
 	}
 	llmContent.WriteString(":\n")
-	
+
 	for _, result := range results {
 		path := result["path"].(string)
 		content := result["content"].(string)
 		llmContent.WriteString(fmt.Sprintf("\n=== %s ===\n%s\n", path, content))
 	}
-	
+
 	if len(errors) > 0 {
 		llmContent.WriteString("\nErrors:\n")
 		for _, err := range errors {
@@ -136,24 +136,24 @@ func (t *ReadManyFilesTool) Execute(args map[string]interface{}) (*ToolResult, e
 		displayContent.WriteString(fmt.Sprintf(" (⚠️ %d errors)", len(errors)))
 	}
 	displayContent.WriteString("\n\n")
-	
+
 	for _, result := range results {
 		path := result["path"].(string)
 		content := result["content"].(string)
 		size := result["size"].(int64)
 		lines := strings.Count(content, "\n") + 1
-		
+
 		displayContent.WriteString(fmt.Sprintf("### 📄 %s\n", path))
 		displayContent.WriteString(fmt.Sprintf("*%d lines, %d bytes*\n", lines, size))
 		displayContent.WriteString("```\n")
-		
+
 		// Add line numbers for display
 		for i, line := range strings.Split(content, "\n") {
 			displayContent.WriteString(fmt.Sprintf("%4d | %s\n", i+1, line))
 		}
 		displayContent.WriteString("```\n\n")
 	}
-	
+
 	if len(errors) > 0 {
 		displayContent.WriteString("### ⚠️ Errors:\n")
 		for _, err := range errors {

@@ -7,6 +7,7 @@ import (
 	"log"
 
 	"github.com/sashabaranov/go-openai"
+	"github.com/trknhr/agenticode/internal/hooks"
 	"github.com/trknhr/agenticode/internal/tools"
 )
 
@@ -18,6 +19,7 @@ type TurnHandler struct {
 	pendingApprovals map[string]ToolCallRequestEvent
 	turn             *Turn
 	toolResponses    []openai.ChatCompletionMessage
+	hookManager      *hooks.Manager
 }
 
 // NewTurnHandler creates a new turn handler
@@ -29,6 +31,11 @@ func NewTurnHandler(tools map[string]tools.Tool, approver ToolApprover) *TurnHan
 		pendingApprovals: make(map[string]ToolCallRequestEvent),
 		toolResponses:    []openai.ChatCompletionMessage{},
 	}
+}
+
+// SetHookManager sets the hook manager for this handler
+func (h *TurnHandler) SetHookManager(manager *hooks.Manager) {
+	h.hookManager = manager
 }
 
 // HandleTurn processes all events from a turn
@@ -135,11 +142,42 @@ func (h *TurnHandler) handleToolCallConfirmation(ctx context.Context, event Tool
 }
 
 // executeToolCall executes an approved tool call
-func (h *TurnHandler) executeToolCall(_ context.Context, event ToolCallRequestEvent) error {
+func (h *TurnHandler) executeToolCall(ctx context.Context, event ToolCallRequestEvent) error {
 	tool, exists := h.tools[event.Name]
 	if !exists {
 		log.Printf("ERROR: Tool not found: %s (CallID: %s)", event.Name, event.CallID)
 		return fmt.Errorf("tool not found: %s", event.Name)
+	}
+
+	// Execute PreToolUse hooks if hook manager is available
+	if h.hookManager != nil {
+		hookInput := hooks.HookInput{
+			ToolName:  event.Name,
+			ToolInput: event.Args,
+		}
+
+		outputs, err := h.hookManager.ExecuteHooks(ctx, hooks.PreToolUse, hookInput)
+		if err != nil {
+			log.Printf("PreToolUse hook error: %v", err)
+		}
+
+		// Check if any hook blocks the tool execution
+		if blocked, reason := h.hookManager.ShouldBlockToolExecution(outputs); blocked {
+			log.Printf("Tool execution blocked by hook: %s", reason)
+			// Add blocked response
+			h.toolResponses = append(h.toolResponses, openai.ChatCompletionMessage{
+				Role:       "tool",
+				Name:       event.Name,
+				Content:    fmt.Sprintf("Tool execution blocked: %s", reason),
+				ToolCallID: event.CallID,
+			})
+			return nil
+		}
+
+		// Check if any hook auto-approves the tool
+		if approved, reason := h.hookManager.ShouldAutoApprove(outputs); approved {
+			log.Printf("Tool auto-approved by hook: %s", reason)
+		}
 	}
 
 	log.Printf("Executing tool: %s (CallID: %s)", event.Name, event.CallID)
@@ -179,6 +217,40 @@ func (h *TurnHandler) executeToolCall(_ context.Context, event ToolCallRequestEv
 
 	// Mark as executed in scheduler
 	h.scheduler.MarkExecuted(event.CallID, result, err)
+
+	// Execute PostToolUse hooks if hook manager is available
+	if h.hookManager != nil {
+		toolResponseMap := map[string]interface{}{
+			"success": err == nil,
+			"content": content,
+		}
+		if result != nil {
+			toolResponseMap["llmContent"] = result.LLMContent
+			toolResponseMap["returnDisplay"] = result.ReturnDisplay
+		}
+
+		hookInput := hooks.HookInput{
+			ToolName:     event.Name,
+			ToolInput:    event.Args,
+			ToolResponse: toolResponseMap,
+		}
+
+		outputs, err := h.hookManager.ExecuteHooks(ctx, hooks.PostToolUse, hookInput)
+		if err != nil {
+			log.Printf("PostToolUse hook error: %v", err)
+		}
+
+		// Check if any hook wants to provide feedback
+		for _, output := range outputs {
+			if output.Decision == "block" && output.Reason != "" {
+				// Add hook feedback to conversation
+				h.toolResponses = append(h.toolResponses, openai.ChatCompletionMessage{
+					Role:    "system",
+					Content: fmt.Sprintf("Hook feedback: %s", output.Reason),
+				})
+			}
+		}
+	}
 
 	return nil
 }

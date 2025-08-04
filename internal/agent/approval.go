@@ -21,15 +21,15 @@ const (
 
 // PendingToolCall represents a tool call awaiting approval
 type PendingToolCall struct {
-	ID           string
-	ToolCall     openai.ToolCall
-	Context      context.Context
-	Status       ToolCallStatus
-	Result       interface{}
-	Error        error
-	CreatedAt    time.Time
-	ApprovedAt   *time.Time
-	ExecutedAt   *time.Time
+	ID         string
+	ToolCall   openai.ToolCall
+	Context    context.Context
+	Status     ToolCallStatus
+	Result     interface{}
+	Error      error
+	CreatedAt  time.Time
+	ApprovedAt *time.Time
+	ExecutedAt *time.Time
 }
 
 // ToolCallScheduler manages pending tool calls
@@ -171,7 +171,7 @@ type ApprovalResponse struct {
 type RiskLevel int
 
 const (
-	RiskLow RiskLevel = iota    // Read-only operations
+	RiskLow    RiskLevel = iota // Read-only operations
 	RiskMedium                  // File modifications
 	RiskHigh                    // System commands
 )

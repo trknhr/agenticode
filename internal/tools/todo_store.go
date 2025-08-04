@@ -18,11 +18,11 @@ const (
 
 // TodoItem represents a single todo item
 type TodoItem struct {
-	ID        string     `json:"id"`
-	Title     string     `json:"title"`
-	State     TodoState  `json:"state"`
-	CreatedAt time.Time  `json:"created_at"`
-	UpdatedAt time.Time  `json:"updated_at"`
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	State     TodoState `json:"state"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // TodoStore manages todo items in memory
@@ -69,7 +69,7 @@ func (s *TodoStore) ReadAll() []TodoItem {
 	for _, item := range s.items {
 		todos = append(todos, item)
 	}
-	
+
 	// Sort by creation time (oldest first)
 	// This ensures consistent ordering
 	return todos
@@ -79,6 +79,6 @@ func (s *TodoStore) ReadAll() []TodoItem {
 func (s *TodoStore) Clear() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	s.items = make(map[string]TodoItem)
 }

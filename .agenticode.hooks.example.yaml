@@ -1,0 +1,96 @@
+# Example AgentiCode configuration with hooks
+# Copy this to ~/.agenticode.yaml to test hooks
+
+# Provider configuration (required)
+providers:
+  openai:
+    type: openai
+    base_url: https://api.openai.com/v1
+    api_key: $OPENAI_API_KEY
+    models:
+      - id: gpt-4.1
+        name: GPT-4.1
+        context_window: 128000
+        max_tokens: 4096
+
+models:
+  default:
+    provider: openai
+    model: gpt-4.1
+
+general:
+  max_steps: 10
+
+# Hooks configuration
+hooks:
+  # Before tool execution
+  PreToolUse:
+    # Validate shell commands
+    - matcher: "run_shell"
+      hooks:
+        - type: command
+          command: "$AGENTICODE_PROJECT_DIR/.agenticode/hooks/validate-commands.py"
+          timeout: 5
+    
+    # Check style for code files
+    - matcher: "write_file|edit"
+      hooks:
+        - type: command
+          command: "$AGENTICODE_PROJECT_DIR/.agenticode/hooks/check-style.sh"
+          timeout: 10
+    
+    # Log all tool usage
+    - matcher: "*"  # Match all tools
+      hooks:
+        - type: command
+          command: "echo \"[$(date)] Tool: $(cat | jq -r .tool_name)\" >> ~/.agenticode/tools.log"
+  
+  # After tool execution
+  PostToolUse:
+    # Log completed file operations
+    - matcher: "write_file|edit|read_file"
+      hooks:
+        - type: command
+          command: |
+            input=$(cat)
+            tool=$(echo "$input" | jq -r .tool_name)
+            success=$(echo "$input" | jq -r '.tool_response.success // true')
+            echo "[$(date)] $tool completed (success: $success)" >> ~/.agenticode/operations.log
+  
+  # When user submits prompt
+  UserPromptSubmit:
+    - hooks:
+        # Add context to all prompts
+        - type: command
+          command: "$AGENTICODE_PROJECT_DIR/.agenticode/hooks/add-context.sh"
+        
+        # Block prompts containing secrets (example)
+        - type: command
+          command: |
+            if grep -qE '(password|secret|key)\s*[:=]' <<< "$(cat | jq -r .prompt)"; then
+              echo "Prompt appears to contain sensitive information" >&2
+              exit 2
+            fi
+            exit 0
+  
+  # When agent completes
+  Stop:
+    - hooks:
+        # Notify on completion (example - adjust for your system)
+        - type: command
+          command: |
+            echo "AgentiCode task completed" | tee -a ~/.agenticode/completions.log
+            # Uncomment for desktop notifications:
+            # osascript -e 'display notification "Task completed" with title "AgentiCode"' 2>/dev/null || true
+  
+  # When starting a session
+  SessionStart:
+    - hooks:
+        # Load project-specific context
+        - type: command
+          command: |
+            if [[ -f "$AGENTICODE_PROJECT_DIR/.agenticode/context.md" ]]; then
+              echo "=== Project Context ==="
+              cat "$AGENTICODE_PROJECT_DIR/.agenticode/context.md"
+            fi
+            exit 0

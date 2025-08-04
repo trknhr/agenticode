@@ -14,9 +14,9 @@ import (
 )
 
 const (
-	cacheTimeout = 15 * time.Minute
+	cacheTimeout   = 15 * time.Minute
 	maxContentSize = 100 * 1024 // 100KB limit for content
-	userAgent = "AgentiCode/1.0"
+	userAgent      = "AgentiCode/1.0"
 )
 
 // LLMProcessor interface to avoid circular dependency
@@ -37,17 +37,17 @@ type cacheEntry struct {
 
 func NewWebFetchTool(llmClient interface{}) *WebFetchTool {
 	tool := &WebFetchTool{
-		cache:     make(map[string]cacheEntry),
+		cache: make(map[string]cacheEntry),
 	}
-	
+
 	// Type assert the llmClient
 	if client, ok := llmClient.(LLMProcessor); ok {
 		tool.llmClient = client
 	}
-	
+
 	// Start cache cleanup goroutine
 	go tool.cleanupCache()
-	
+
 	return tool
 }
 
@@ -105,7 +105,7 @@ func (t *WebFetchTool) Execute(args map[string]interface{}) (*ToolResult, error)
 		if err != nil {
 			return nil, fmt.Errorf("failed to fetch content: %w", err)
 		}
-		
+
 		// Cache the content
 		t.addToCache(cleanedURL, content)
 	}
@@ -218,7 +218,7 @@ func (t *WebFetchTool) fetchContent(url string) (string, error) {
 
 	// Trim and clean up
 	markdown = strings.TrimSpace(markdown)
-	
+
 	// If content is still too large, summarize it
 	if len(markdown) > maxContentSize {
 		markdown = markdown[:maxContentSize] + "\n\n[Content truncated due to size limits]"
@@ -232,10 +232,10 @@ func (t *WebFetchTool) extractTextContent(html string) string {
 	// Remove script and style tags
 	html = removeHTMLTags(html, "script")
 	html = removeHTMLTags(html, "style")
-	
+
 	// Remove all HTML tags
 	html = stripHTMLTags(html)
-	
+
 	// Clean up whitespace
 	lines := strings.Split(html, "\n")
 	var cleanLines []string
@@ -245,36 +245,36 @@ func (t *WebFetchTool) extractTextContent(html string) string {
 			cleanLines = append(cleanLines, line)
 		}
 	}
-	
+
 	return strings.Join(cleanLines, "\n")
 }
 
 func removeHTMLTags(html, tag string) string {
 	start := fmt.Sprintf("<%s", tag)
 	end := fmt.Sprintf("</%s>", tag)
-	
+
 	for {
 		startIdx := strings.Index(strings.ToLower(html), start)
 		if startIdx == -1 {
 			break
 		}
-		
+
 		endIdx := strings.Index(strings.ToLower(html[startIdx:]), end)
 		if endIdx == -1 {
 			break
 		}
-		
+
 		endIdx += startIdx + len(end)
 		html = html[:startIdx] + html[endIdx:]
 	}
-	
+
 	return html
 }
 
 func stripHTMLTags(html string) string {
 	var result strings.Builder
 	inTag := false
-	
+
 	for _, r := range html {
 		if r == '<' {
 			inTag = true
@@ -285,7 +285,7 @@ func stripHTMLTags(html string) string {
 			result.WriteRune(r)
 		}
 	}
-	
+
 	return result.String()
 }
 

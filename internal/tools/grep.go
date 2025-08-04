@@ -69,7 +69,7 @@ func (t *GrepTool) Execute(args map[string]interface{}) (*ToolResult, error) {
 
 	var matches []map[string]interface{}
 	totalMatches := 0
-	
+
 	err = filepath.Walk(path, func(filePath string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil // Skip files we can't access
@@ -150,7 +150,7 @@ func (t *GrepTool) Execute(args map[string]interface{}) (*ToolResult, error) {
 		displayContent.WriteString(fmt.Sprintf(" in `%s` files", include))
 	}
 	displayContent.WriteString(fmt.Sprintf("\n\nFound **%d matches** in **%d files**\n", totalMatches, len(matches)))
-	
+
 	if len(matches) > 0 {
 		for _, match := range matches {
 			file := match["file"].(string)

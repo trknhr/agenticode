@@ -8,14 +8,15 @@ import (
 
 // ReadTool is a simple tool for reading file contents
 // Input parameters:
-// {
-//   // The absolute path to the file to read
-//   file_path: string;
-//   // The line number to start reading from. Only provide if the file is too large to read at once
-//   offset?: number;
-//   // The number of lines to read. Only provide if the file is too large to read at once.
-//   limit?: number;
-// }
+//
+//	{
+//	  // The absolute path to the file to read
+//	  file_path: string;
+//	  // The line number to start reading from. Only provide if the file is too large to read at once
+//	  offset?: number;
+//	  // The number of lines to read. Only provide if the file is too large to read at once.
+//	  limit?: number;
+//	}
 type ReadTool struct{}
 
 func NewReadTool() *ReadTool {

@@ -77,22 +77,22 @@ func (ia *InteractiveApprover) RequestApproval(ctx context.Context, request Appr
 	fmt.Println("\n" + strings.Repeat("─", 60))
 	fmt.Println("🔧 TOOL APPROVAL REQUEST")
 	fmt.Println(strings.Repeat("─", 60))
-	
+
 	for i, call := range request.ToolCalls {
 		if ia.autoReject[call.ToolCall.Function.Name] {
 			continue // Skip rejected tools
 		}
-		
+
 		toolName := call.ToolCall.Function.Name
 		risk := request.Risks[call.ID]
-		
+
 		fmt.Printf("\n%d. %s %s - %s\n", i+1, GetRiskIcon(risk), toolName, GetRiskDescription(risk))
-		
+
 		// Check if we have confirmation details for file operations
 		if request.ConfirmationDetails != nil {
 			if fileDetails, ok := request.ConfirmationDetails.(*ToolFileConfirmationDetails); ok {
 				fmt.Printf("   %s\n", fileDetails.Title())
-				
+
 				// Show file diff preview for modifications
 				if !fileDetails.IsNewFile && fileDetails.FileDiff != "" {
 					fmt.Println("   Preview of changes:")
@@ -152,7 +152,7 @@ func (ia *InteractiveApprover) RequestApproval(ctx context.Context, request Appr
 			}
 		}
 	}
-	
+
 	fmt.Println("\n" + strings.Repeat("─", 60))
 	fmt.Println("Options:")
 	fmt.Println("  y/yes    - Approve all")
@@ -234,7 +234,7 @@ func (ia *InteractiveApprover) selectiveApproval(request ApprovalRequest) Approv
 		// Parse comma-separated numbers
 		selections := strings.Split(input, ",")
 		selectedIndices := make(map[int]bool)
-		
+
 		for _, s := range selections {
 			if num, err := strconv.Atoi(strings.TrimSpace(s)); err == nil {
 				selectedIndices[num-1] = true // Convert to 0-based index
@@ -251,7 +251,7 @@ func (ia *InteractiveApprover) selectiveApproval(request ApprovalRequest) Approv
 		response.Approved = len(response.ApprovedIDs) > 0
 	}
 
-	fmt.Printf("✅ Approved %d tools, ❌ Rejected %d tools\n", 
+	fmt.Printf("✅ Approved %d tools, ❌ Rejected %d tools\n",
 		len(response.ApprovedIDs), len(response.RejectedIDs))
 
 	return response
@@ -266,18 +266,18 @@ func (ia *InteractiveApprover) showDetailedInfo(request ApprovalRequest) {
 	for i, call := range request.ToolCalls {
 		toolName := call.ToolCall.Function.Name
 		risk := request.Risks[call.ID]
-		
+
 		fmt.Printf("\n%d. Tool: %s\n", i+1, toolName)
 		fmt.Printf("   Risk Level: %s %s\n", GetRiskIcon(risk), GetRiskDescription(risk))
 		fmt.Printf("   Tool Call ID: %s\n", call.ID)
 		fmt.Printf("   Created At: %s\n", call.CreatedAt.Format("15:04:05"))
-		
+
 		// Check if we have file confirmation details
 		if request.ConfirmationDetails != nil {
 			if fileDetails, ok := request.ConfirmationDetails.(*ToolFileConfirmationDetails); ok {
 				fmt.Printf("   %s\n", fileDetails.Title())
 				fmt.Printf("   File Path: %s\n", fileDetails.FilePath)
-				
+
 				if fileDetails.IsNewFile {
 					fmt.Println("\n   Full new file content:")
 					fmt.Println(strings.Repeat("-", 50))
@@ -325,7 +325,7 @@ func (ia *InteractiveApprover) showDetailedInfo(request ApprovalRequest) {
 			}
 		}
 	}
-	
+
 	fmt.Println("\n" + strings.Repeat("═", 60))
 }
 

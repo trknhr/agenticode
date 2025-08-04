@@ -33,8 +33,8 @@ Hello again`
 			"file_path": testFile,
 			"edits": []interface{}{
 				map[string]interface{}{
-					"old_string": "Hello",
-					"new_string": "Hi",
+					"old_string":  "Hello",
+					"new_string":  "Hi",
 					"replace_all": true,
 				},
 				map[string]interface{}{
@@ -123,8 +123,8 @@ Hi again`
 			"file_path": testFile,
 			"edits": []interface{}{
 				map[string]interface{}{
-					"old_string": "duplicate",
-					"new_string": "unique",
+					"old_string":  "duplicate",
+					"new_string":  "unique",
 					"replace_all": false,
 				},
 			},

@@ -10,7 +10,7 @@ import (
 
 // AgentFactoryAdapter adapts the agent package for use by the tools package
 type AgentFactoryAdapter struct {
-	systemPrompt   func(string) string
+	systemPrompt    func(string) string
 	developerPrompt func() string
 }
 
@@ -41,7 +41,7 @@ func (afa *AgentFactoryAdapter) CreateAgentTool(llmClient interface{}) tools.Too
 			// For general-purpose and executor agents, allow all tools
 			approver = &SimpleAutoApprover{}
 		}
-		
+
 		// Configure max steps based on agent type
 		maxSteps := 10 // default
 		switch agentType {
@@ -52,18 +52,18 @@ func (afa *AgentFactoryAdapter) CreateAgentTool(llmClient interface{}) tools.Too
 		case "executor":
 			maxSteps = 5 // Execution should be quick
 		}
-		
+
 		// Create sub-agent with appropriate configuration
 		opts := []Option{
 			WithMaxSteps(maxSteps),
 			WithApprover(approver),
 		}
-		
+
 		// For restricted agent types, only provide allowed tools
 		if agentType == "searcher" || agentType == "analyzer" {
 			allowedTools := getToolsForAgentType(agentType)
 			filteredTools := []tools.Tool{}
-			
+
 			// Get default tools and filter them
 			defaultTools := tools.GetDefaultTools()
 			for _, tool := range defaultTools {
@@ -76,9 +76,9 @@ func (afa *AgentFactoryAdapter) CreateAgentTool(llmClient interface{}) tools.Too
 			}
 			opts = append(opts, WithTools(filteredTools))
 		}
-		
+
 		subAgent := NewAgent(client, opts...)
-		
+
 		// Create an adapter that implements tools.AgentInterface
 		return &agentInterfaceAdapter{
 			agent:           subAgent,
@@ -101,15 +101,15 @@ type agentInterfaceAdapter struct {
 func (a *agentInterfaceAdapter) ExecuteWithHistory(ctx context.Context, conversation []interface{}, dryrun bool) (*tools.AgentExecutionResult, []interface{}, error) {
 	// Convert interface{} conversation to OpenAI messages
 	openAIMessages := make([]openai.ChatCompletionMessage, 0, len(conversation))
-	
+
 	// Get model name for system prompt
 	modelName := "gpt-4" // default
 	if pc, ok := a.agent.llmClient.(*llm.ProviderClient); ok {
 		modelName = pc.GetCurrentModel()
 	}
-	
+
 	// Add system and developer prompts
-	openAIMessages = append(openAIMessages, 
+	openAIMessages = append(openAIMessages,
 		openai.ChatCompletionMessage{
 			Role:    "system",
 			Content: a.systemPrompt(modelName),
@@ -119,39 +119,39 @@ func (a *agentInterfaceAdapter) ExecuteWithHistory(ctx context.Context, conversa
 			Content: a.developerPrompt(),
 		},
 	)
-	
+
 	// Convert the user-provided conversation
 	for _, msg := range conversation {
 		if msgMap, ok := msg.(map[string]interface{}); ok {
 			role, _ := msgMap["role"].(string)
 			content, _ := msgMap["content"].(string)
-			
+
 			// Skip system messages as we already added our own
 			if role == "system" {
 				continue
 			}
-			
+
 			openAIMessages = append(openAIMessages, openai.ChatCompletionMessage{
 				Role:    role,
 				Content: content,
 			})
 		}
 	}
-	
+
 	// Execute with the real agent
 	result, updatedConv, err := a.agent.ExecuteWithHistory(ctx, openAIMessages, dryrun)
 	if err != nil {
 		return nil, nil, err
 	}
-	
+
 	// Convert ExecutionResult to tools.AgentExecutionResult
 	toolsResult := &tools.AgentExecutionResult{
-		Success: result.Success,
-		Message: result.Message,
+		Success:        result.Success,
+		Message:        result.Message,
 		GeneratedFiles: make([]tools.GeneratedFile, len(result.GeneratedFiles)),
-		Steps: make([]tools.ExecutionStep, len(result.Steps)),
+		Steps:          make([]tools.ExecutionStep, len(result.Steps)),
 	}
-	
+
 	// Convert generated files
 	for i, file := range result.GeneratedFiles {
 		toolsResult.GeneratedFiles[i] = tools.GeneratedFile{
@@ -160,7 +160,7 @@ func (a *agentInterfaceAdapter) ExecuteWithHistory(ctx context.Context, conversa
 			Action:  file.Action,
 		}
 	}
-	
+
 	// Convert steps
 	for i, step := range result.Steps {
 		toolsResult.Steps[i] = tools.ExecutionStep{
@@ -172,13 +172,13 @@ func (a *agentInterfaceAdapter) ExecuteWithHistory(ctx context.Context, conversa
 			Error:      step.Error,
 		}
 	}
-	
+
 	// Convert updated conversation back to interface{}
 	updatedInterface := make([]interface{}, len(updatedConv))
 	for i, msg := range updatedConv {
 		updatedInterface[i] = msg
 	}
-	
+
 	return toolsResult, updatedInterface, nil
 }
 
@@ -193,11 +193,11 @@ func (s *SimpleAutoApprover) RequestApproval(ctx context.Context, request Approv
 		RejectedIDs: []string{},
 		Reason:      "Auto-approved for sub-agent",
 	}
-	
+
 	for i, call := range request.ToolCalls {
 		response.ApprovedIDs[i] = call.ID
 	}
-	
+
 	return response, nil
 }
 
@@ -217,12 +217,12 @@ func (r *RestrictedAutoApprover) RequestApproval(ctx context.Context, request Ap
 		ApprovedIDs: []string{},
 		RejectedIDs: []string{},
 	}
-	
+
 	// Check each tool call
 	for _, call := range request.ToolCalls {
 		toolName := call.ToolCall.Function.Name
 		allowed := false
-		
+
 		// Check if tool is in allowed list
 		for _, allowedTool := range r.allowedTools {
 			if toolName == allowedTool {
@@ -230,20 +230,20 @@ func (r *RestrictedAutoApprover) RequestApproval(ctx context.Context, request Ap
 				break
 			}
 		}
-		
+
 		if allowed {
 			response.ApprovedIDs = append(response.ApprovedIDs, call.ID)
 		} else {
 			response.RejectedIDs = append(response.RejectedIDs, call.ID)
 		}
 	}
-	
+
 	// Set approved if at least one tool was approved
 	response.Approved = len(response.ApprovedIDs) > 0
 	if len(response.RejectedIDs) > 0 {
 		response.Reason = "Some tools are not allowed for this agent type"
 	}
-	
+
 	return response, nil
 }
 

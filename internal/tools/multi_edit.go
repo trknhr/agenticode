@@ -34,7 +34,7 @@ func (t *MultiEditTool) GetParameters() map[string]interface{} {
 				"description": "The absolute path to the file to modify",
 			},
 			"edits": map[string]interface{}{
-				"type": "array",
+				"type":        "array",
 				"description": "Array of edit operations to perform sequentially on the file",
 				"items": map[string]interface{}{
 					"type": "object",
@@ -105,7 +105,7 @@ func (t *MultiEditTool) Execute(args map[string]interface{}) (*ToolResult, error
 
 	fileContent := string(content)
 	originalContent := fileContent
-	
+
 	// Track all replacements
 	totalReplacements := 0
 	editResults := []string{}
@@ -189,7 +189,7 @@ func (t *MultiEditTool) Execute(args map[string]interface{}) (*ToolResult, error
 
 	// Build result message
 	resultDetails := strings.Join(editResults, "\n")
-	
+
 	return &ToolResult{
 		LLMContent:    fmt.Sprintf("Successfully applied %d edits to %s with %d total replacements", len(edits), filePath, totalReplacements),
 		ReturnDisplay: fmt.Sprintf("✅ **Multi-edited** `%s`\n\nApplied **%d edits** with **%d total replacements**:\n%s", filePath, len(edits), totalReplacements, resultDetails),

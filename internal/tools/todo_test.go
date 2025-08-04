@@ -12,7 +12,7 @@ func TestTodoTools(t *testing.T) {
 
 	// Test TodoWriteTool
 	writeTool := NewTodoWriteTool()
-	
+
 	// Test creating new todos
 	writeArgs := map[string]interface{}{
 		"items": []map[string]interface{}{
@@ -30,46 +30,46 @@ func TestTodoTools(t *testing.T) {
 			},
 		},
 	}
-	
+
 	writeResult, err := writeTool.Execute(writeArgs)
 	if err != nil {
 		t.Fatalf("TodoWriteTool.Execute() failed: %v", err)
 	}
-	
+
 	if !strings.Contains(writeResult.LLMContent, "3 todo items") {
 		t.Errorf("Expected LLMContent to mention 3 items, got: %s", writeResult.LLMContent)
 	}
-	
+
 	// Test TodoReadTool
 	readTool := NewTodoReadTool()
 	readResult, err := readTool.Execute(map[string]interface{}{})
 	if err != nil {
 		t.Fatalf("TodoReadTool.Execute() failed: %v", err)
 	}
-	
+
 	// Parse the JSON response
 	var todos []TodoItem
 	if err := json.Unmarshal([]byte(readResult.LLMContent), &todos); err != nil {
 		t.Fatalf("Failed to parse TodoReadTool JSON response: %v", err)
 	}
-	
+
 	if len(todos) != 3 {
 		t.Errorf("Expected 3 todos, got %d", len(todos))
 	}
-	
+
 	// Verify display content
 	if !strings.Contains(readResult.ReturnDisplay, "In Progress:") {
 		t.Errorf("Expected display to contain 'In Progress:', got: %s", readResult.ReturnDisplay)
 	}
-	
+
 	if !strings.Contains(readResult.ReturnDisplay, "Pending:") {
 		t.Errorf("Expected display to contain 'Pending:', got: %s", readResult.ReturnDisplay)
 	}
-	
+
 	// Test updating existing todo
 	// First, get the ID of one todo
 	firstTodoID := todos[0].ID
-	
+
 	updateArgs := map[string]interface{}{
 		"items": []map[string]interface{}{
 			{
@@ -79,22 +79,22 @@ func TestTodoTools(t *testing.T) {
 			},
 		},
 	}
-	
+
 	updateResult, err := writeTool.Execute(updateArgs)
 	if err != nil {
 		t.Fatalf("TodoWriteTool.Execute() for update failed: %v", err)
 	}
-	
+
 	if !strings.Contains(updateResult.LLMContent, "updated 1 existing") {
 		t.Errorf("Expected update message, got: %s", updateResult.LLMContent)
 	}
-	
+
 	// Read again to verify update
 	readResult2, err := readTool.Execute(map[string]interface{}{})
 	if err != nil {
 		t.Fatalf("TodoReadTool.Execute() after update failed: %v", err)
 	}
-	
+
 	if !strings.Contains(readResult2.ReturnDisplay, "Completed:") {
 		t.Errorf("Expected display to contain 'Completed:', got: %s", readResult2.ReturnDisplay)
 	}
@@ -102,13 +102,13 @@ func TestTodoTools(t *testing.T) {
 
 func TestTodoWriteValidation(t *testing.T) {
 	writeTool := NewTodoWriteTool()
-	
+
 	// Test missing items parameter
 	_, err := writeTool.Execute(map[string]interface{}{})
 	if err == nil || !strings.Contains(err.Error(), "missing required parameter") {
 		t.Errorf("Expected missing parameter error, got: %v", err)
 	}
-	
+
 	// Test empty items array
 	_, err = writeTool.Execute(map[string]interface{}{
 		"items": []map[string]interface{}{},
@@ -116,7 +116,7 @@ func TestTodoWriteValidation(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "cannot be empty") {
 		t.Errorf("Expected empty items error, got: %v", err)
 	}
-	
+
 	// Test empty title
 	_, err = writeTool.Execute(map[string]interface{}{
 		"items": []map[string]interface{}{
@@ -129,7 +129,7 @@ func TestTodoWriteValidation(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "title cannot be empty") {
 		t.Errorf("Expected empty title error, got: %v", err)
 	}
-	
+
 	// Test invalid state
 	_, err = writeTool.Execute(map[string]interface{}{
 		"items": []map[string]interface{}{

@@ -8,18 +8,18 @@ import (
 
 // ProviderConfig represents a single LLM provider configuration
 type ProviderConfig struct {
-	Type    string        `yaml:"type" json:"type" mapstructure:"type"`                // Provider type: "openai", "anthropic", etc.
-	BaseURL string        `yaml:"base_url" json:"base_url" mapstructure:"base_url"`    // Base URL for the API
-	APIKey  string        `yaml:"api_key" json:"api_key" mapstructure:"api_key"`       // API key (can use $ENV_VAR syntax)
-	Models  []ModelConfig `yaml:"models" json:"models" mapstructure:"models"`          // Available models for this provider
+	Type    string        `yaml:"type" json:"type" mapstructure:"type"`             // Provider type: "openai", "anthropic", etc.
+	BaseURL string        `yaml:"base_url" json:"base_url" mapstructure:"base_url"` // Base URL for the API
+	APIKey  string        `yaml:"api_key" json:"api_key" mapstructure:"api_key"`    // API key (can use $ENV_VAR syntax)
+	Models  []ModelConfig `yaml:"models" json:"models" mapstructure:"models"`       // Available models for this provider
 }
 
 // ModelConfig represents a single model configuration
 type ModelConfig struct {
-	ID            string `yaml:"id" json:"id" mapstructure:"id"`                                           // Model identifier (e.g., "gpt-4", "deepseek-chat")
-	Name          string `yaml:"name" json:"name" mapstructure:"name"`                                     // Human-readable name
-	ContextWindow int    `yaml:"context_window" json:"context_window" mapstructure:"context_window"`       // Maximum context size
-	MaxTokens     int    `yaml:"max_tokens" json:"max_tokens" mapstructure:"max_tokens"`                   // Default max tokens for responses
+	ID            string `yaml:"id" json:"id" mapstructure:"id"`                                     // Model identifier (e.g., "gpt-4", "deepseek-chat")
+	Name          string `yaml:"name" json:"name" mapstructure:"name"`                               // Human-readable name
+	ContextWindow int    `yaml:"context_window" json:"context_window" mapstructure:"context_window"` // Maximum context size
+	MaxTokens     int    `yaml:"max_tokens" json:"max_tokens" mapstructure:"max_tokens"`             // Default max tokens for responses
 }
 
 // ModelSelection represents a model choice with provider and model ID

@@ -72,6 +72,11 @@ models:
     provider: openai
     model: gpt-4-turbo-preview
   
+  # Summarization model - cheaper/faster model for conversation compression
+  summarize:
+    provider: openai
+    model: gpt-3.5-turbo
+  
   # Local model for offline use
   local:
     provider: local
@@ -87,3 +92,33 @@ openai:
 general:
   max_steps: 10                        # Maximum steps for agent execution
   confirm_before_write: true           # Ask for confirmation before writing files
+
+# Hooks configuration
+# Hooks execute commands at various points in the agent lifecycle
+# hooks:
+#   # Before tool execution
+#   PreToolUse:
+#     - matcher: "write_file|edit"     # Match write_file or edit tools
+#       hooks:
+#         - type: command
+#           command: "echo 'About to modify files' >> ~/.agenticode/hooks.log"
+#   
+#   # After tool execution
+#   PostToolUse:
+#     - matcher: "run_shell"           # Match run_shell tool
+#       hooks:
+#         - type: command
+#           command: "$AGENTICODE_PROJECT_DIR/.agenticode/hooks/check-shell.sh"
+#           timeout: 30                # Optional timeout in seconds
+#   
+#   # When user submits a prompt
+#   UserPromptSubmit:
+#     - hooks:
+#         - type: command
+#           command: "date '+Context: Current time is %Y-%m-%d %H:%M:%S'"
+#   
+#   # When agent completes
+#   Stop:
+#     - hooks:
+#         - type: command
+#           command: "echo 'Agent completed' | notify-send"

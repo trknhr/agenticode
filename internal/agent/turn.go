@@ -79,12 +79,12 @@ func (t *Turn) run(ctx context.Context) {
 func (t *Turn) callLLM(ctx context.Context) (*LLMResponse, error) {
 	// Filter conversation for LLM
 	filteredConversation := filterConversationForLLM(t.conversation)
-	
+
 	// Check with debugger before making LLM call
 	if t.debugger != nil && !t.debugger.ShouldContinue(filteredConversation) {
 		return nil, fmt.Errorf("LLM call cancelled by debugger")
 	}
-	
+
 	log.Printf("Calling LLM with %d messages in conversation", len(filteredConversation))
 	resp, err := t.llmClient.Generate(ctx, filteredConversation)
 	if err != nil {
@@ -110,7 +110,7 @@ func (t *Turn) handleToolCall(toolCall openai.ToolCall) {
 	if callID == "" {
 		callID = fmt.Sprintf("%s-%d", toolCall.Function.Name, len(t.pendingCalls))
 	}
-	
+
 	// Log tool call for debugging
 	log.Printf("Processing tool call: ID=%s, Name=%s", callID, toolCall.Function.Name)
 
@@ -133,7 +133,7 @@ func (t *Turn) handleToolCall(toolCall openai.ToolCall) {
 	}
 
 	t.pendingCalls = append(t.pendingCalls, event)
-	
+
 	// Check if tool exists
 	_, exists := t.tools[toolCall.Function.Name]
 	if !exists {
@@ -219,7 +219,7 @@ func (t *Turn) createFileConfirmationDetails(toolName string, args map[string]in
 		if content, ok := args["content"].(string); ok {
 			details.NewContent = content
 		}
-		
+
 		// Check if file exists
 		if _, err := os.Stat(details.FilePath); err == nil {
 			// File exists, read current content
@@ -227,7 +227,7 @@ func (t *Turn) createFileConfirmationDetails(toolName string, args map[string]in
 			if err == nil {
 				details.OriginalContent = string(currentContent)
 				details.IsNewFile = false
-				
+
 				// Generate diff
 				diffGen := NewDiffGenerator()
 				details.FileDiff = diffGen.GenerateColoredDiff(details.OriginalContent, details.NewContent, details.FilePath)
@@ -240,32 +240,32 @@ func (t *Turn) createFileConfirmationDetails(toolName string, args map[string]in
 		if path, ok := args["file_path"].(string); ok {
 			details.FilePath = path
 		}
-		
+
 		// Read current file content
 		currentContent, err := os.ReadFile(details.FilePath)
 		if err != nil {
 			return nil // Can't edit non-existent file
 		}
-		
+
 		details.OriginalContent = string(currentContent)
 		details.IsNewFile = false
-		
+
 		// Calculate new content
 		oldString, _ := args["old_string"].(string)
 		newString, _ := args["new_string"].(string)
 		replaceAll, _ := args["replace_all"].(bool)
-		
+
 		if replaceAll {
 			details.NewContent = strings.ReplaceAll(details.OriginalContent, oldString, newString)
 		} else {
 			details.NewContent = strings.Replace(details.OriginalContent, oldString, newString, 1)
 		}
-		
+
 		// Generate diff
 		diffGen := NewDiffGenerator()
 		details.FileDiff = diffGen.GenerateColoredDiff(details.OriginalContent, details.NewContent, details.FilePath)
 	}
-	
+
 	return details
 }
 
@@ -275,11 +275,11 @@ func (t *Turn) createExecConfirmationDetails(toolName string, args map[string]in
 		ToolName: toolName,
 		Risk:     risk,
 	}
-	
+
 	if cmd, ok := args["command"].(string); ok {
 		details.Command = cmd
 	}
-	
+
 	if wd, ok := args["working_directory"].(string); ok {
 		details.WorkingDir = wd
 	} else {
@@ -288,6 +288,6 @@ func (t *Turn) createExecConfirmationDetails(toolName string, args map[string]in
 			details.WorkingDir = cwd
 		}
 	}
-	
+
 	return details
 }

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/trknhr/agenticode/internal/agent"
+	"github.com/trknhr/agenticode/internal/hooks"
 	"github.com/trknhr/agenticode/internal/llm"
 	"github.com/trknhr/agenticode/internal/tools"
 )
@@ -171,6 +173,16 @@ func runInteractiveMode(cmd *cobra.Command, args []string) error {
 		availableTools = filteredTools
 	}
 
+	// Load hook configuration
+	projectDir, _ := os.Getwd()
+	sessionID := fmt.Sprintf("session_%d", os.Getpid()) // Simple session ID for now
+
+	var hookManager *hooks.Manager
+	if hookConfig, err := loadHooksFromViper(); err == nil && hookConfig != nil {
+		hookManager = hooks.NewManager(hookConfig, projectDir, debugMode, sessionID)
+		log.Printf("Loaded hook configuration with %d hook types", countHookTypes(hookConfig))
+	}
+
 	// Build agent options
 	opts := []agent.Option{
 		agent.WithMaxSteps(maxSteps),
@@ -180,6 +192,10 @@ func runInteractiveMode(cmd *cobra.Command, args []string) error {
 
 	if debugMode {
 		opts = append(opts, agent.WithDebugger(agent.NewInteractiveDebugger()))
+	}
+
+	if hookManager != nil {
+		opts = append(opts, agent.WithHookManager(hookManager))
 	}
 
 	agentInstance := agent.NewAgent(client, opts...)
@@ -206,9 +222,38 @@ func runInteractiveMode(cmd *cobra.Command, args []string) error {
 	if promptStr != "" {
 		// Non-interactive mode: execute the prompt and exit
 		ctx := context.Background()
-		conversation := append(conversation, openai.ChatCompletionMessage{
+
+		// Execute UserPromptSubmit hooks
+		finalPrompt := promptStr
+		if hookManager != nil {
+			hookInput := hooks.HookInput{
+				Prompt: promptStr,
+			}
+
+			outputs, err := hookManager.ExecuteHooks(ctx, hooks.UserPromptSubmit, hookInput)
+			if err != nil {
+				log.Printf("UserPromptSubmit hook error: %v", err)
+			}
+
+			// Check if any hook blocks the prompt
+			for _, output := range outputs {
+				if output.Decision == "block" {
+					return fmt.Errorf("prompt blocked by hook: %s", output.Reason)
+				}
+			}
+
+			// Add any additional context from hooks
+			if additionalContext := hookManager.GetAdditionalContext(outputs); additionalContext != "" {
+				conversation = append(conversation, openai.ChatCompletionMessage{
+					Role:    "system",
+					Content: additionalContext,
+				})
+			}
+		}
+
+		conversation = append(conversation, openai.ChatCompletionMessage{
 			Role:    "user",
-			Content: promptStr,
+			Content: finalPrompt,
 		},
 		)
 
@@ -260,6 +305,7 @@ func runInteractiveMode(cmd *cobra.Command, args []string) error {
 	fmt.Println("AgentiCode Interactive Mode")
 	fmt.Println("Type 'exit' or 'quit' to end the session")
 	fmt.Println("Type 'clear' to clear the conversation history")
+	fmt.Println("Type 'compact' to compress conversation history into a summary")
 	fmt.Println("Type 'history' to view conversation history")
 	fmt.Println("Type 'todos' to view the todo store")
 	fmt.Println("---")
@@ -294,6 +340,80 @@ func runInteractiveMode(cmd *cobra.Command, args []string) error {
 				},
 			}
 			fmt.Println("Conversation history cleared.")
+			continue
+		case "compact":
+			fmt.Println("\n🗜️ Compressing conversation history...")
+			
+			// Check if there's enough conversation to summarize
+			if len(conversation) < 4 { // At least system, developer, and a user-assistant exchange
+				fmt.Println("❌ Conversation too short to compress. Need at least one exchange.")
+				continue
+			}
+
+			// Check if a summarization model is configured
+			var summarizeClient llm.Client
+			useSummarizeModel := false
+			
+			if viper.IsSet("models.summarize") {
+				// Try to create a client for the summarization model
+				summarizeConfig := &llm.ProvidersConfig{
+					Providers: make(map[string]llm.ProviderConfig),
+					Models:    make(map[string]llm.ModelSelection),
+				}
+				
+				if err := viper.UnmarshalKey("providers", &summarizeConfig.Providers); err == nil {
+					if err := viper.UnmarshalKey("models", &summarizeConfig.Models); err == nil {
+						if sumClient, err := llm.NewClient(llm.Config{
+							ProvidersConfig: summarizeConfig,
+							ModelSelection:  "summarize",
+						}); err == nil {
+							summarizeClient = sumClient
+							useSummarizeModel = true
+						}
+					}
+				}
+			}
+
+			// Perform summarization
+			result, err := agent.SummarizeConversation(
+				context.Background(),
+				client,
+				conversation,
+				useSummarizeModel,
+				summarizeClient,
+			)
+			
+			if err != nil {
+				fmt.Printf("❌ Failed to compress conversation: %v\n", err)
+				continue
+			}
+
+			// Create new conversation with summary
+			summaryMessage := agent.CreateSummaryMessage(result.Summary, result)
+			newConversation := []openai.ChatCompletionMessage{
+				{
+					Role:    "system",
+					Content: agent.GetSystemPrompt(modelName),
+				},
+				{
+					Role:    "developer",
+					Content: agent.GetDeveloperPrompt(),
+				},
+				{
+					Role:    "assistant",
+					Content: summaryMessage,
+				},
+			}
+
+			// Replace conversation
+			conversation = newConversation
+			
+			fmt.Printf("\n✅ Conversation compressed successfully!\n")
+			fmt.Printf("📊 %d → %d tokens (%.1fx compression, saved %d tokens)\n",
+				result.OriginalTokens,
+				result.SummaryTokens,
+				result.CompressionRatio,
+				result.TokensSaved)
 			continue
 		case "history":
 			fmt.Println("\n--- Conversation History ---")
@@ -353,14 +473,50 @@ func runInteractiveMode(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
+		// Execute UserPromptSubmit hooks
+		finalInput := input
+		ctx := context.Background()
+
+		if hookManager != nil {
+			hookInput := hooks.HookInput{
+				Prompt: input,
+			}
+
+			outputs, err := hookManager.ExecuteHooks(ctx, hooks.UserPromptSubmit, hookInput)
+			if err != nil {
+				log.Printf("UserPromptSubmit hook error: %v", err)
+			}
+
+			// Check if any hook blocks the prompt
+			blocked := false
+			for _, output := range outputs {
+				if output.Decision == "block" {
+					fmt.Printf("❌ Prompt blocked by hook: %s\n", output.Reason)
+					blocked = true
+					break
+				}
+			}
+
+			if blocked {
+				continue // Skip this prompt
+			}
+
+			// Add any additional context from hooks
+			if additionalContext := hookManager.GetAdditionalContext(outputs); additionalContext != "" {
+				conversation = append(conversation, openai.ChatCompletionMessage{
+					Role:    "system",
+					Content: additionalContext,
+				})
+			}
+		}
+
 		// Add user message to conversation
 		conversation = append(conversation, openai.ChatCompletionMessage{
 			Role:    "user",
-			Content: input,
+			Content: finalInput,
 		})
 
 		// Execute task with conversation history
-		ctx := context.Background()
 		response, updatedConversation, err := agentInstance.ExecuteWithHistory(ctx, conversation, false)
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
@@ -387,4 +543,54 @@ func runInteractiveMode(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// loadHooksFromViper loads hook configuration from viper
+func loadHooksFromViper() (*hooks.HookConfig, error) {
+	// Check if hooks are configured
+	if !viper.IsSet("hooks") {
+		return nil, nil
+	}
+
+	var config hooks.HookConfig
+	if err := viper.UnmarshalKey("hooks", &config); err != nil {
+		return nil, fmt.Errorf("failed to load hooks configuration: %w", err)
+	}
+
+	// Validate the configuration
+	if err := hooks.ValidateHookConfig(&config); err != nil {
+		return nil, fmt.Errorf("invalid hooks configuration: %w", err)
+	}
+
+	return &config, nil
+}
+
+// countHookTypes counts the number of configured hook types
+func countHookTypes(config *hooks.HookConfig) int {
+	count := 0
+	if len(config.PreToolUse) > 0 {
+		count++
+	}
+	if len(config.PostToolUse) > 0 {
+		count++
+	}
+	if len(config.UserPromptSubmit) > 0 {
+		count++
+	}
+	if len(config.Notification) > 0 {
+		count++
+	}
+	if len(config.Stop) > 0 {
+		count++
+	}
+	if len(config.SubagentStop) > 0 {
+		count++
+	}
+	if len(config.PreCompact) > 0 {
+		count++
+	}
+	if len(config.SessionStart) > 0 {
+		count++
+	}
+	return count
 }
