@@ -14,6 +14,7 @@ import (
 	"github.com/trknhr/agenticode/internal/agent"
 	"github.com/trknhr/agenticode/internal/hooks"
 	"github.com/trknhr/agenticode/internal/llm"
+	"github.com/trknhr/agenticode/internal/mcp"
 	"github.com/trknhr/agenticode/internal/tools"
 )
 
@@ -157,6 +158,19 @@ func runInteractiveMode(cmd *cobra.Command, args []string) error {
 
 	// Get tools
 	availableTools := tools.GetDefaultTools()
+	
+	// Load MCP tools if configured
+	ctx := context.Background()
+	mcpManager, mcpTools := mcp.LoadMCPTools(ctx, approver, viper.GetViper())
+	if len(mcpTools) > 0 {
+		log.Printf("Loaded %d MCP tools", len(mcpTools))
+		availableTools = append(availableTools, mcpTools...)
+	}
+	
+	// Ensure MCP clients are closed on exit
+	if mcpManager != nil {
+		defer mcpManager.CloseAll()
+	}
 
 	// Filter tools if allowedTools is specified
 	if allowedTools != "" {

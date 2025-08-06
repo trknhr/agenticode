@@ -33,8 +33,8 @@ func (a *LLMAdapter) ProcessContent(ctx context.Context, content, prompt string)
 		},
 	}
 
-	// Call LLM
-	response, err := a.client.Generate(ctx, messages)
+	// Call LLM without tools since this is just for content processing
+	response, err := a.client.Generate(ctx, messages, nil)
 	if err != nil {
 		return "", err
 	}

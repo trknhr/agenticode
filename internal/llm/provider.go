@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	openai "github.com/sashabaranov/go-openai"
-	"github.com/trknhr/agenticode/internal/tools"
 )
 
 // ProviderClient is a provider-agnostic client that works with any OpenAI-compatible API
@@ -128,11 +127,11 @@ type FunctionCall struct {
 }
 
 // Generate sends a chat completion request to the provider
-func (c *ProviderClient) Generate(ctx context.Context, messages []openai.ChatCompletionMessage) (openai.ChatCompletionResponse, error) {
+func (c *ProviderClient) Generate(ctx context.Context, messages []openai.ChatCompletionMessage, tools []openai.Tool) (openai.ChatCompletionResponse, error) {
 	req := openai.ChatCompletionRequest{
 		Model:      c.currentModel,
 		Messages:   messages,
-		Tools:      c.getOpenAITools(),
+		Tools:      tools,
 		ToolChoice: "auto",
 	}
 
@@ -175,27 +174,3 @@ func (c *ProviderClient) SwitchModel(modelID string) error {
 	return fmt.Errorf("model %s not found in provider", modelID)
 }
 
-func (c *ProviderClient) getOpenAITools() []openai.Tool {
-	// Get all available tools from the tools package
-	defaultTools := tools.GetDefaultTools()
-
-	// Convert to OpenAI tool definitions
-	openAITools := make([]openai.Tool, 0, len(defaultTools))
-	for _, tool := range defaultTools {
-		// Skip tools that are not yet implemented
-		if tool.Name() == "apply_patch" {
-			continue
-		}
-
-		openAITools = append(openAITools, openai.Tool{
-			Type: "function",
-			Function: openai.FunctionDefinition{
-				Name:        tool.Name(),
-				Description: tool.Description(),
-				Parameters:  tool.GetParameters(),
-			},
-		})
-	}
-
-	return openAITools
-}

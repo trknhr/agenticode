@@ -58,8 +58,8 @@ func SummarizeConversation(ctx context.Context, client llm.Client, conversation 
 		log.Println("Using alternate model for summarization")
 	}
 
-	// Generate the summary
-	response, err := llmClient.Generate(ctx, summarizeMessages)
+	// Generate the summary without tools
+	response, err := llmClient.Generate(ctx, summarizeMessages, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate summary: %w", err)
 	}

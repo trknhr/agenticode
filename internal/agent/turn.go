@@ -85,8 +85,11 @@ func (t *Turn) callLLM(ctx context.Context) (*LLMResponse, error) {
 		return nil, fmt.Errorf("LLM call cancelled by debugger")
 	}
 
-	log.Printf("Calling LLM with %d messages in conversation", len(filteredConversation))
-	resp, err := t.llmClient.Generate(ctx, filteredConversation)
+	// Convert tools to OpenAI format
+	openAITools := t.getOpenAITools()
+	
+	log.Printf("Calling LLM with %d messages in conversation and %d tools", len(filteredConversation), len(openAITools))
+	resp, err := t.llmClient.Generate(ctx, filteredConversation, openAITools)
 	if err != nil {
 		return nil, err
 	}
@@ -101,6 +104,27 @@ func (t *Turn) callLLM(ctx context.Context) (*LLMResponse, error) {
 		Content:   choice.Message.Content,
 		ToolCalls: choice.Message.ToolCalls,
 	}, nil
+}
+
+// getOpenAITools converts agent tools to OpenAI format
+func (t *Turn) getOpenAITools() []openai.Tool {
+	openAITools := make([]openai.Tool, 0, len(t.tools))
+	for _, tool := range t.tools {
+		// Skip tools that are not yet implemented
+		if tool.Name() == "apply_patch" {
+			continue
+		}
+		
+		openAITools = append(openAITools, openai.Tool{
+			Type: "function",
+			Function: openai.FunctionDefinition{
+				Name:        tool.Name(),
+				Description: tool.Description(),
+				Parameters:  tool.GetParameters(),
+			},
+		})
+	}
+	return openAITools
 }
 
 // handleToolCall processes a single tool call request

@@ -88,6 +88,28 @@ openai:
   api_key: $OPENAI_API_KEY
   model: gpt-4-turbo-preview
 
+# MCP (Model Context Protocol) server configurations
+# Configure external tools via MCP servers
+mcp:
+  # Example: Filesystem MCP server
+  # filesystem:
+  #   type: stdio
+  #   command: npx
+  #   args: [-y, @modelcontextprotocol/server-filesystem, /tmp]
+  #   env: {}
+  #   disabled: false
+  
+  # Example: GitHub MCP server  
+  # github:
+  #   type: http
+  #   url: https://api.github.com/mcp
+  #   headers:
+  #     Authorization: Bearer $GITHUB_TOKEN
+  #   disabled: false
+
+# Alternatively, load MCP config from a separate file
+# mcp_config_file: .agenticode.mcp.yaml
+
 # General settings
 general:
   max_steps: 10                        # Maximum steps for agent execution

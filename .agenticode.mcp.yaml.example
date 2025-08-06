@@ -1,0 +1,59 @@
+# Dedicated MCP configuration file example
+# Reference this in .agenticode.yaml with:
+#   mcp_config_file: .agenticode.mcp.yaml
+
+servers:
+  # Filesystem access server
+  filesystem:
+    type: stdio
+    command: npx
+    args: 
+      - -y
+      - "@modelcontextprotocol/server-filesystem"
+      - /tmp
+    env: {}
+    disabled: false
+
+  # Git operations server
+  git:
+    type: stdio  
+    command: npx
+    args:
+      - -y
+      - "@modelcontextprotocol/server-git"
+    env: {}
+    disabled: false
+
+  # Example Serena server for IDE assistance
+  serena:
+    type: stdio
+    command: uvx
+    args:
+      - --from
+      - /path/to/serena
+      - serena
+      - start-mcp-server
+      - --context
+      - ide-assistant
+      - --project
+      - .
+    env:
+      PYTHON_PATH: /usr/bin/python3
+    disabled: false
+
+  # Example HTTP-based server
+  http-example:
+    type: http
+    url: https://example.com/mcp
+    headers:
+      Authorization: Bearer $API_TOKEN
+      X-API-Version: "1.0"
+    disabled: true
+
+  # Example SSE-based server  
+  sse-example:
+    type: sse
+    url: https://example.com/mcp/sse
+    headers:
+      Authorization: Bearer $API_TOKEN
+    disabled: true
